@@ -1,0 +1,53 @@
+# Go build outputs
+/bin/
+/dist/
+/build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Test and profiling output
+/coverage/
+/coverage.txt
+/profile.out
+/cpu.prof
+/mem.prof
+/trace.out
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Local databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS and Windows metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# Editor and IDE settings
+.idea/
+.vscode/
+*.code-workspace
+
+# Go workspace files are machine-specific unless deliberately shared
+go.work
+go.work.sum

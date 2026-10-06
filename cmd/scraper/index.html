@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gold Prices</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #20291f;
+      --muted: #697267;
+      --line: #e6e8df;
+      --paper: #f5f6f1;
+      --card: #fff;
+      --green: #245b42;
+      --gold: #c49336;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(ellipse at 12% 0%, #f1e8d3 0, transparent 34rem), var(--paper);
+      color: var(--ink);
+      font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1440px, 100% - 48px); margin: 0 auto; padding: 48px 0 64px; }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .eyebrow { margin: 0 0 8px; color: #8c6d32; font-size: 12px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(32px, 5vw, 48px); line-height: 1.1; letter-spacing: -.045em; }
+    .intro { max-width: 720px; margin: 14px 0 28px; color: var(--muted); }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 24px 0; padding: 16px 18px; border: 1px solid #e7dfce; border-radius: 16px; background: #fffdf8; }
+    .size-control { display: flex; align-items: center; gap: 12px; font-weight: 650; }
+    input { width: 112px; padding: 10px 12px; border: 1px solid #d8d7ce; border-radius: 9px; background: white; color: var(--ink); font: inherit; }
+    input:focus { outline: 3px solid #c4933633; border-color: var(--gold); }
+    #status { margin: 0; color: var(--muted); font-size: 13px; }
+    .tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    section { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: 0 8px 28px #27321c0a; }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 14px; }
+    h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    .direction { color: var(--muted); font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 540px; border-collapse: collapse; text-align: left; }
+    th { padding: 10px 16px; background: #f7f8f4; color: #777f72; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+    td { padding: 14px 16px; border-top: 1px solid #eff0eb; vertical-align: top; white-space: pre-line; }
+    tbody tr { transition: background .15s ease; }
+    tbody tr:hover { background: #fafbf8; }
+    .provider-cell { min-width: 150px; font-weight: 700; }
+    .provider-source { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 450; }
+    .quote-cell { color: var(--ink); font-variant-numeric: tabular-nums; }
+    .quote-value { display: block; margin-bottom: 5px; font-size: 16px; font-weight: 700; }
+    .fee-label { display: inline-block; margin: 0 0 7px; padding: 2px 7px; border: 1px solid #eadfca; border-radius: 999px; background: #fbf6eb; color: #826324; font-size: 11px; font-weight: 650; }
+    .fee-unknown { border-color: #e7e8e3; background: #f5f6f3; color: #777f72; }
+    .quote-meta { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .estimate-cell { min-width: 140px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .best { background: #edf6ef; }
+    .best .estimate-cell { color: #236142; }
+    .worst { background: #fff5f2; }
+    .worst .estimate-cell { color: #9d4b3a; }
+    .pending { color: #92968e; }
+    .stale { color: #9a6518; }
+    @media (max-width: 900px) {
+      main { width: min(100% - 32px, 680px); padding-top: 32px; }
+      .tables { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      main { width: calc(100% - 24px); padding: 24px 0 40px; }
+      .topline { align-items: flex-start; }
+      .toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .size-control { width: 100%; justify-content: space-between; }
+      section { border-radius: 12px; }
+      .section-heading { padding: 16px; }
+      th, td { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="topline"><div><p class="eyebrow">Market overview</p><h1>Gold prices</h1></div></div>
+      <p class="intro">Compare live 18-karat gold quotes across providers, with estimated fees included for your order size.</p>
+    </header>
+    <div class="toolbar">
+      <label class="size-control" for="grams">Order size <span><input id="grams" type="number" min="0.001" step="0.001" value="1"> grams</span></label>
+      <p id="status" role="status" aria-live="polite">Loading prices…</p>
+    </div>
+    <div class="tables">
+      <section>
+        <div class="section-heading"><h2>Buying gold</h2><span class="direction">Lowest estimated cost first</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Price per gram</th><th>Estimated total</th></tr></thead><tbody id="buy-prices"></tbody></table></div>
+      </section>
+      <section>
+        <div class="section-heading"><h2>Selling gold</h2><span class="direction">Highest estimated proceeds first</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Price per gram</th><th>Estimated proceeds</th></tr></thead><tbody id="sell-prices"></tbody></table></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const numberFormat = new Intl.NumberFormat();
+
+    function formatFee(fee, included) {
+      if (!fee) return "Fee: unknown";
+      const parts = [];
+      if (fee.rate) parts.push(`${numberFormat.format(fee.rate * 100)}%`);
+      if (fee.fixedToman) parts.push(`${numberFormat.format(fee.fixedToman)} toman`);
+      if (parts.length === 0) parts.push("0%");
+      return `Fee: ${parts.join(" + ")}${included ? " (included in price)" : ""}`;
+    }
+
+    function feeKnown(price, feeField) {
+      return price.feeIncludedInPrice || price[feeField] != null;
+    }
+
+    function effective(price, field, feeField, grams) {
+      const fee = price[feeField] || { rate: 0, fixedToman: 0 };
+      const base = price[field] * grams;
+      if (price.feeIncludedInPrice) return base;
+      return field === "buy"
+        ? base * (1 + fee.rate) + fee.fixedToman
+        : base * (1 - fee.rate) - fee.fixedToman;
+    }
+
+    function renderRows(target, prices, field, feeField, grams) {
+      const usable = prices.filter((price) => price.available && !price.stale && price[field] > 0);
+      const ranked = usable.filter((price) => feeKnown(price, feeField));
+      const unranked = usable.filter((price) => !feeKnown(price, feeField));
+      const pending = prices.filter((price) => !price.available || price.stale || price[field] <= 0);
+      ranked.sort((a, b) => field === "buy"
+        ? effective(a, field, feeField, grams) - effective(b, field, feeField, grams)
+        : effective(b, field, feeField, grams) - effective(a, field, feeField, grams));
+      const body = document.getElementById(target);
+      const totals = ranked.map((price) => effective(price, field, feeField, grams));
+      const best = field === "buy" ? Math.min(...totals) : Math.max(...totals);
+      const worst = field === "buy" ? Math.max(...totals) : Math.min(...totals);
+      body.replaceChildren(...[...ranked, ...unranked, ...pending].map((price) => {
+        const row = document.createElement("tr");
+        if (!price.available || price.stale || price[field] <= 0) row.classList.add("pending");
+        const total = effective(price, field, feeField, grams);
+        if (ranked.length > 1 && feeKnown(price, feeField) && total === best) row.classList.add("best");
+        if (ranked.length > 1 && feeKnown(price, feeField) && total === worst) row.classList.add("worst");
+        if (price.stale) row.classList.add("stale");
+        const site = `${price.site}\n${price.source || "Source unknown"}${price.stale ? " · STALE" : ""}`;
+        const quoteDate = price.timestamp ? new Date(price.timestamp) : null;
+        const quoteTime = quoteDate && quoteDate.getFullYear() > 1
+          ? `Source quote: ${quoteDate.toLocaleTimeString()}`
+          : "Source quote time unavailable";
+        const refreshed = price.fetchedAt
+          ? `Fetched: ${new Date(price.fetchedAt).toLocaleTimeString()}`
+          : "Not fetched yet";
+        const unit = price.available && price[field] > 0
+          ? `${numberFormat.format(price[field])} toman\n${formatFee(price[feeField], price.feeIncludedInPrice)}\n${quoteTime}\n${refreshed}`
+          : "Waiting for price…";
+        const estimate = price.available && !price.stale && price[field] > 0
+          ? (feeKnown(price, feeField) ? `${numberFormat.format(Math.round(total))} toman` : "Not ranked: fee unknown")
+          : "Unavailable";
+        for (const [index, cellValue] of [site, unit, estimate].entries()) {
+          const cell = document.createElement("td");
+          cell.className = ["provider-cell", "quote-cell", "estimate-cell"][index];
+          if (index === 0) {
+            const [provider, source] = cellValue.split("\n");
+            const name = document.createElement("span");
+            name.textContent = provider;
+            cell.append(name);
+            const sourceLabel = document.createElement("span");
+            sourceLabel.className = "provider-source";
+            sourceLabel.textContent = source;
+            cell.append(sourceLabel);
+          } else if (index === 1 && price.available && price[field] > 0) {
+            const [amount, fee, quote, fetched] = cellValue.split("\n");
+            const value = document.createElement("span");
+            value.className = "quote-value";
+            value.textContent = amount;
+            cell.append(value);
+            const feeLabel = document.createElement("span");
+            feeLabel.className = `fee-label${price[feeField] == null && !price.feeIncludedInPrice ? " fee-unknown" : ""}`;
+            feeLabel.textContent = fee.replace(/^Fee: /, "Fee · ");
+            cell.append(feeLabel);
+            for (const detail of [quote, fetched]) {
+              const meta = document.createElement("span");
+              meta.className = "quote-meta";
+              meta.textContent = detail;
+              cell.append(meta);
+            }
+          } else {
+            cell.textContent = cellValue;
+          }
+          row.appendChild(cell);
+        }
+        return row;
+      }));
+    }
+
+    async function refreshPrices() {
+      const status = document.getElementById("status");
+      try {
+        const response = await fetch("/api/prices");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const prices = await response.json();
+        const grams = Math.max(0.001, Number(document.getElementById("grams").value) || 1);
+        renderRows("buy-prices", prices, "buy", "buyFee", grams);
+        renderRows("sell-prices", prices, "sell", "sellFee", grams);
+        status.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        status.textContent = `Could not load prices: ${error.message}`;
+      }
+    }
+
+    refreshPrices();
+    setInterval(refreshPrices, 5000);
+    document.getElementById("grams").addEventListener("input", refreshPrices);
+  </script>
+</body>
+</html>

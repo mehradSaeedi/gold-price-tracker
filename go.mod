@@ -1,0 +1,5 @@
+module github.com/mehradSaeedi/gold-price-tracker
+
+go 1.25.7
+
+require github.com/gorilla/websocket v1.5.3
