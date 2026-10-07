@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/mehradSaeedi/gold-price-tracker/internal/scraper"
+	"github.com/mehradSaeedi/gold-price-tracker/internal/storage"
 )
 
 //go:embed index.html
@@ -34,9 +37,9 @@ func newPriceStore(sites []string) *priceStore {
 }
 
 // /\ Save the newest price for this site.
-func (s *priceStore) set(price scraper.Price) error {
+func (s *priceStore) set(price scraper.Price) (scraper.Price, error) {
 	if price.Site == "" || price.Buy <= 0 || price.Sell <= 0 {
-		return fmt.Errorf("quote must have a site and positive buy and sell prices")
+		return scraper.Price{}, fmt.Errorf("quote must have a site and positive buy and sell prices")
 	}
 	if !validFee(price.BuyFee) {
 		price.BuyFee = nil
@@ -49,7 +52,7 @@ func (s *priceStore) set(price scraper.Price) error {
 	s.mu.Lock()
 	s.prices[price.Site] = price
 	s.mu.Unlock()
-	return nil
+	return price, nil
 }
 
 func validFee(fee *scraper.Fee) bool {
@@ -74,7 +77,7 @@ type priceFetcher interface {
 }
 
 // /\ Refresh one site's price in the background.
-func pollPrices(name, source string, fetcher priceFetcher, store *priceStore) {
+func pollPrices(name, source string, persist bool, fetcher priceFetcher, store *priceStore, database *storage.Postgres) {
 	refresh := func() {
 		price, err := fetcher.GetPrice()
 		if err != nil {
@@ -84,9 +87,19 @@ func pollPrices(name, source string, fetcher priceFetcher, store *priceStore) {
 		if price.Source == "" {
 			price.Source = source
 		}
-		if err := store.set(price); err != nil {
+		price, err = store.set(price)
+		if err != nil {
 			log.Printf("%s returned invalid quote: %v", name, err)
 			return
+		}
+		if persist {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := database.SaveObservation(ctx, price)
+			cancel()
+			if err != nil {
+				log.Printf("%s quote was not saved to PostgreSQL: %v", name, err)
+				return
+			}
 		}
 		log.Printf("updated %s prices", price.Site)
 	}
@@ -102,6 +115,20 @@ func pollPrices(name, source string, fetcher priceFetcher, store *priceStore) {
 // /\ Start the scrapers and serve the dashboard and its price data.
 func main() {
 	client := &http.Client{Timeout: 10 * time.Second}
+	// /\ Keep database credentials in the environment so they never need to live in source code.
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL is required; see the Stage 1 instructions in PROJECT_REVIEW_AND_CHANGELOG.md")
+	}
+	// /\ Start the shared connection pool before launching scrapers, so database failures show up immediately.
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	database, err := storage.OpenPostgres(dbCtx, databaseURL)
+	dbCancel()
+	if err != nil {
+		log.Fatalf("connect to PostgreSQL: %v", err)
+	}
+	defer database.Close()
+
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
@@ -111,26 +138,28 @@ func main() {
 	fetchers := []struct {
 		name    string
 		source  string
+		// /\ This flag makes Milli the only database-writing pilot in Stage 1.
+		persist bool
 		fetcher priceFetcher
 	}{
-		{"Milli", "Milli public API", scraper.MilliScraper{Client: client}},
+		{"Milli", "Milli public API", true, scraper.MilliScraper{Client: client}},
 		// /\ Add WallGold to the same 30-second polling loop as the REST scrapers.
-		{"WallGold", "WallGold public API", scraper.WallGoldScraper{Client: client}},
-		{"Talano", "Talano public API", scraper.TalanoScraper{Client: client}},
-		{"Goldika", "Goldika public API", scraper.GoldikaScraper{Client: client}},
-		{"Talasea", "Talasea public API", scraper.TalaseaScraper{Client: client}},
-		{"Taline", "Taline website", scraper.TalineScraper{Client: client}},
-		{"MelliGold", "MelliGold API or Zarscope fallback", scraper.MelligoldScraper{Client: client}},
-		{"TapsiGold", "MelliGold API or Zarscope fallback", scraper.TapsiScraper{Client: client}},
-		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", scraper.SnappSarmayehScraper{Client: client}},
+		{"WallGold", "WallGold public API", false, scraper.WallGoldScraper{Client: client}},
+		{"Talano", "Talano public API", false, scraper.TalanoScraper{Client: client}},
+		{"Goldika", "Goldika public API", false, scraper.GoldikaScraper{Client: client}},
+		{"Talasea", "Talasea public API", false, scraper.TalaseaScraper{Client: client}},
+		{"Taline", "Taline website", false, scraper.TalineScraper{Client: client}},
+		{"MelliGold", "MelliGold API or Zarscope fallback", false, scraper.MelligoldScraper{Client: client}},
+		{"TapsiGold", "MelliGold API or Zarscope fallback", false, scraper.TapsiScraper{Client: client}},
+		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", false, scraper.SnappSarmayehScraper{Client: client}},
 		// /\ These four do not expose a usable public quote API, so use Zarscope's public feed.
-		{"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
-		{"Invi", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},
-		{"Digi Gold", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
-		{"Zarpin", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
+		{"Daric", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
+		{"Invi", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},
+		{"Digi Gold", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
+		{"Zarpin", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
 	}
 	for _, item := range fetchers {
-		go pollPrices(item.name, item.source, item.fetcher, store)
+		go pollPrices(item.name, item.source, item.persist, item.fetcher, store, database)
 	}
 
 	hamrah := scraper.NewHamrahScraper()
@@ -142,7 +171,7 @@ func main() {
 					if price.Source == "" {
 						price.Source = "HamrahGold WebSocket"
 					}
-					if err := store.set(price); err != nil {
+					if _, err := store.set(price); err != nil {
 						log.Printf("HamrahGold returned invalid quote: %v", err)
 					}
 				}

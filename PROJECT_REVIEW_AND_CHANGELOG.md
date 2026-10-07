@@ -128,3 +128,91 @@ The fee display differentiates unknown fees from a known zero fee. Known percent
 - Confirm Talano's fee units and whether those fees are already included in its returned buy/sell prices.
 - Confirm the exact meaning and units of each provider's buy/sell prices. This implementation validates that they are positive but cannot infer a wrong rial/toman conversion from a plausible positive number.
 - Provider APIs and fee policies can change. The estimates should be compared against provider checkout previews before being used for an actual order.
+
+---
+
+# Stage 1: PostgreSQL observation storage
+
+Date: 2026-10-07
+
+## What Stage 1 does
+
+The app now opens a PostgreSQL connection pool at startup using the `DATABASE_URL` environment variable. It fails early if the database cannot be reached. The Milli scraper is the pilot: after a successful result passes the existing quote validation and updates the dashboard's in-memory store, the app appends that result to PostgreSQL. The other scrapers still update the dashboard but are not persisted in this stage.
+
+The insert has a five-second context deadline. A context deadline is a time limit attached to one database operation; it prevents a stuck database write from holding the Milli polling goroutine forever. A failed insert is logged, and the dashboard still has the validated in-memory quote. The database error is visible in the app log.
+
+## Schema choices
+
+`migrations/001_create_price_observations.sql` creates `price_observations`. Each row is an immutable observation with provider/source names, buy/sell prices in toman, fee fields, source quote time, and the app's fetch time. There is no uniqueness rule on site/time, because two identical prices fetched at two different times are still two useful observations.
+
+The fee columns are nullable as pairs. `NULL` means the scraper does not know that fee; `0` means it knows the fee is zero. `source_timestamp` can be `NULL` because not every provider gives us one. `fetched_at` is always set by this app. The `(site, fetched_at DESC)` index supports looking up one provider's recent history; indexes speed up reads but add a small amount of work to every insert.
+
+Raw observations are the historical source of truth. Later OHLC candles should be derived from these rows: first price for open, highest for high, lowest for low, and last for close in each interval. No candle table or candle API is added here.
+
+The database stores the normalized `scraper.Price` result, not the original HTTP response body. If upstream payload archival becomes useful, it can be added separately without confusing it with this app-level observation.
+
+## Why pgx and this layer split
+
+The project already had pgx in its module files. `internal/storage/postgres.go` now uses pgx's `pgxpool`, which is a connection pool safe for the concurrent scraper goroutines to share. Direct SQL is used instead of an ORM: this keeps the small append operation and schema visible, and avoids adding a mapping layer before the data model is settled.
+
+The scraper package remains responsible for fetching and parsing provider data. The storage package knows how to connect and write an accepted result. The collector loop connects those two steps. This keeps database details out of individual provider scrapers.
+
+## How to run and check Stage 1
+
+First apply the migration to the local database. Replace the username/password with the credentials configured in your PostgreSQL installation; the database name below is the existing `gold_price_tracker` database:
+
+```sh
+export DATABASE_URL='postgres://YOUR_USER:YOUR_PASSWORD@localhost:5432/gold_price_tracker?sslmode=disable'
+psql "$DATABASE_URL" -f migrations/001_create_price_observations.sql
+```
+
+Then start the app in that shell:
+
+```sh
+go run ./cmd/scraper
+```
+
+After Milli successfully fetches a quote, query the most recent rows in another terminal:
+
+```sh
+psql "$DATABASE_URL" -c "SELECT site, source, buy_toman, sell_toman, fetched_at FROM price_observations ORDER BY fetched_at DESC LIMIT 5;"
+```
+
+Wait about 30 seconds and run the query again to see another observation. If Milli's request fails, no row should be added for that failed attempt. Database insert errors appear in the app log.
+
+Run the Go package checks with:
+
+```sh
+go test ./...
+```
+
+That command compiles and runs the repository's Go tests; it does not prove the database is configured, so the `psql` check above is still needed. Apply the migration before starting the app. The app does not silently create or alter tables on startup.
+
+The storage package also has an opt-in integration test. With `DATABASE_URL` set to the local database connection, run:
+
+```sh
+TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/storage -run '^TestSaveObservation$' -v
+```
+
+The test writes one uniquely named row, reads it back (including known-versus-unknown fee values), and deletes that row during cleanup. It skips during ordinary `go test ./...` runs unless `TEST_DATABASE_URL` is set.
+
+## Checks completed for this implementation
+
+- Applied the migration to the local `gold_price_tracker` database; PostgreSQL created the table and index successfully.
+- Ran an insert inside a transaction and rolled it back to confirm the table accepts a quote without leaving test data.
+- Ran `go test ./...` successfully.
+- Ran the opt-in pgx integration test successfully against the local database; it verified that the Go storage code inserted and read back the observation.
+
+## Stage 1 files
+
+- `internal/storage/postgres.go` — opens/pings the shared pgx pool, appends a normalized observation, and closes the pool.
+- `migrations/001_create_price_observations.sql` — creates the append-only table, data checks, and first history index.
+- `cmd/scraper/main.go` — reads `DATABASE_URL`, opens the pool, and persists accepted Milli results with a bounded write context.
+- `go.mod` and `go.sum` — pgx becomes a direct dependency of the application; unused ORM dependencies are removed.
+
+## Limits before Stage 2
+
+- Only Milli is persisted as the Stage 1 pilot. The other providers and HamrahGold remain in-memory only.
+- Each Milli poll waits for its insert to finish, up to five seconds. This is intentionally simple; a queued writer would be a later design if database latency or throughput requires it.
+- The polling interval is approximate: each scraper waits 30 seconds after its previous fetch finishes, so request duration is added to that interval.
+- The schema stores the app's normalized observation and assumes the existing scraper values are toman per gram. It does not retain raw upstream payloads or independently verify provider units.

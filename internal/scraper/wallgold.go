@@ -53,10 +53,12 @@ func (s WallGoldScraper) GetPrice() (Price, error) {
 
 	var buy, sell int64
 	var foundBuy, foundSell bool
+
 	for _, item := range priceData.Result {
 		if item.Symbol != wallGoldGoldSymbol {
 			continue
 		}
+
 		value, err := parseWallGoldPrice(item.Price)
 		if err != nil {
 			return Price{}, fmt.Errorf("parse WallGold %s price: %w", item.Side, err)
@@ -105,7 +107,9 @@ func getWallGoldJSON(client *http.Client, url string, target any) error {
 	if err != nil {
 		return err
 	}
+
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP status %d", resp.StatusCode)
 	}
@@ -121,10 +125,12 @@ func parseWallGoldPrice(raw json.RawMessage) (int64, error) {
 	if err := json.Unmarshal(raw, &value); err == nil {
 		return value, nil
 	}
+
 	var text string
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return 0, err
 	}
+
 	parsed, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
 	if err != nil {
 		return 0, err
