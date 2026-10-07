@@ -216,3 +216,200 @@ The test writes one uniquely named row, reads it back (including known-versus-un
 - Each Milli poll waits for its insert to finish, up to five seconds. This is intentionally simple; a queued writer would be a later design if database latency or throughput requires it.
 - The polling interval is approximate: each scraper waits 30 seconds after its previous fetch finishes, so request duration is added to that interval.
 - The schema stores the app's normalized observation and assumes the existing scraper values are toman per gram. It does not retain raw upstream payloads or independently verify provider units.
+
+---
+
+# Stage 2: persist every collector result
+
+Date: 2026-10-07
+
+## What changed
+
+Every HTTP polling scraper now saves each successfully fetched and validated quote to `price_observations`, rather than only Milli. The existing polling loop still does the initial request and then waits about 30 seconds between completed refreshes.
+
+HamrahGold uses a WebSocket feed rather than a 30-second HTTP poll. Every valid price event it sends now goes through the same collection path and is appended too. We keep each observation even if its price matches the previous one: repeated readings show how long the price stayed at a value and make the raw history complete.
+
+The common `recordPrice` path validates the result, updates the in-memory dashboard, and writes the normalized observation. This is the small collector boundary: scraper code fetches/parses, storage code writes SQL, and the collector connects them. No scraper-specific database code was added, and there was no schema migration for Stage 2.
+
+## Concurrency and failure behavior
+
+All scraper goroutines share the same pgx pool. A pool is designed for concurrent callers; each insert borrows a database connection and returns it when the operation finishes. At this polling rate, this avoids introducing a separate database writer goroutine and queue before we need one.
+
+HamrahGold already sends observations through a channel with a buffer of ten. The consumer stores each event in order. If database inserts temporarily slow down, that bounded channel fills and applies backpressure to the WebSocket reader instead of growing memory without limit. Each database insert still has a five-second deadline.
+
+The dashboard is updated before the database insert. If persistence fails, the quote remains visible in memory and the error is logged, but that observation is not retried and the history will have a gap. A durable retry queue would need a separate design; this stage keeps the failure visible without adding an unbounded in-memory queue that could lose data on restart anyway.
+
+## How to check Stage 2
+
+The local database already has the Stage 1 schema; Stage 2 does not require rerunning the migration. Start the app with the same local connection string used for Stage 1:
+
+```sh
+export DATABASE_URL='postgres:///gold_price_tracker?host=/tmp'
+go run ./cmd/scraper
+```
+
+In another terminal, query recent observations grouped by source:
+
+```sh
+psql -d gold_price_tracker -c "SELECT site, source, count(*) AS observations, max(fetched_at) AS latest FROM price_observations GROUP BY site, source ORDER BY site, source;"
+```
+
+After roughly 30 seconds, the counts for HTTP pollers with successful requests should increase. HamrahGold's count increases when it emits a valid WebSocket update. A provider that is currently unreachable or returning invalid data will not add rows; its error appears in the app log.
+
+Run the normal Go checks and the PostgreSQL integration check as before:
+
+```sh
+go test ./...
+TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/storage -run '^TestSaveObservation$' -v
+```
+
+The storage integration test inserts a uniquely named row, checks it, and cleans it up. It does not start external scrapers.
+
+## Stage 2 files and limits
+
+- `cmd/scraper/main.go` — moved validation, in-memory refresh, and database append into one collector function used by every HTTP poller and HamrahGold.
+- No scraper implementation or database schema changed.
+- Raw collection now includes every successfully accepted scrape result, subject to database availability. Failed requests, rejected quotes, and failed inserts are logged and do not become historical observations.
+- The polling interval remains completion-based: a slow scrape means the next request starts later than 30 seconds after the previous one began.
+- OHLC derivation and candle API remain future work; the database continues to store observations only.
+
+---
+
+# Stage 3: derive OHLC candles and expose them through an API
+
+Date: 2026-10-07
+
+## What changed
+
+The new `GET /api/candles` endpoint derives candles from `price_observations` when requested. It returns buy and sell OHLC values for one provider. No derived candle rows are written, so raw observations remain the historical source of truth.
+
+For each bucket, open and close use the first and last rows ordered by `fetched_at`, with the database row ID breaking timestamp ties. High and low use the maximum and minimum values. `observationCount` tells a chart how many stored samples contributed to each candle. The bucket timestamp is the UTC start of the interval.
+
+Supported intervals are `1m`, `5m`, `15m`, `1h`, and `1d`. PostgreSQL's `date_bin` performs the bucketing. The local database is PostgreSQL 18; `date_bin` is available in PostgreSQL 14 and later. The buckets align to UTC using the migration's fixed UTC origin.
+
+## API example
+
+```text
+GET /api/candles?site=Milli&interval=5m&from=2026-10-07T09:00:00Z&to=2026-10-07T10:00:00Z&limit=200
+```
+
+`site` and `interval` are required. `from` and `to` are optional RFC3339 timestamps; `from` is inclusive and `to` is exclusive. `limit` is optional, defaults to 500, and can range from 1 to 2000. The endpoint selects the newest matching buckets up to the limit, then returns them oldest-to-newest for charting. Supplying a time range is recommended for historical chart requests as the observation history grows.
+
+Each response entry contains `site`, `interval`, `timestamp`, `buy` and `sell` OHLC objects, and `observationCount`. An interval with no observations has no candle entry; the API does not invent candles or fill gaps.
+
+## Database and query concepts
+
+OHLC means **open, high, low, close**: the first observation, maximum, minimum, and last observation inside a time bucket. SQL aggregates calculate these directly from the raw rows. The ordered arrays find the first and last values; ordinary `MAX` and `MIN` find the extremes.
+
+The query reads through the existing `(site, fetched_at DESC)` index and applies the selected interval/range at request time. This is simple and guarantees the candle reflects the observations currently stored. It also means long unbounded history requests do more database work; the time filters and result limit help the API caller bound the response. If chart traffic or data volume grows, we can measure this query and consider cached or materialized candles while keeping raw observations authoritative.
+
+## How to check Stage 3
+
+The opt-in integration test inserts four uniquely named observations into one completed minute, asks the same storage query for a one-minute candle, checks both buy and sell open/high/low/close values, then removes the test rows:
+
+```sh
+TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/storage -run '^TestCandles$' -count=1 -v
+```
+
+The `-count=1` disables Go's test-result cache, so the database test definitely runs. The full package checks remain:
+
+```sh
+go test ./...
+```
+
+After starting the app, try the endpoint directly:
+
+```sh
+curl 'http://localhost:8080/api/candles?site=Milli&interval=1m&limit=10'
+```
+
+The local PostgreSQL integration test for `TestCandles` passed, and `go test ./...` passed. The endpoint itself was not exercised through a running server because that also starts all live provider scrapers.
+
+## Stage 3 files and limits
+
+- `internal/storage/postgres.go` — added OHLC response types and a SQL query that derives candles from observations.
+- `internal/storage/postgres_test.go` — verifies first/last ordering, extrema, candle time, and observation count against PostgreSQL.
+- `cmd/scraper/main.go` — added `/api/candles`, interval and time-range validation, a result cap, and a request timeout.
+- No migration was needed: candles are calculated on demand and are not stored separately.
+- Candle time uses app `fetched_at`, not source timestamps, because that is the consistent event timeline available for all providers.
+- At the initial Stage 3 implementation, the output included raw buy and sell quotes. The later “include known fees in candle prices” follow-up below updates this behavior.
+
+---
+
+# Follow-up: optional quote timestamps and browser candlestick chart
+
+Date: 2026-10-07
+
+## What changed and why
+
+Some providers do not publish the time when their quote was made. The shared `Price.Timestamp` is now a pointer: a real time is included when a scraper can parse one, and `nil` means “not supplied.” Go's JSON encoder omits that field instead of returning the misleading year-one zero date. PostgreSQL likewise receives `NULL` for the missing source time. `FetchedAt` remains set by our app, so we still know when we collected the quote.
+
+The dashboard now has an interactive candlestick chart using TradingView Lightweight Charts 5.2.1. Choose a site, a time interval, and whether to view its buy or sell quote. The browser calls the existing `/api/candles` endpoint and maps each selected OHLC object into the chart library's `{time, open, high, low, close}` format. The API and PostgreSQL remain responsible for deriving candles; the chart library only draws them. It requests at most 500 newest candles and refreshes every 30 seconds.
+
+Lightweight Charts is loaded as a pinned standalone script from unpkg, so the Go app does not need a JavaScript build step. That means a browser needs internet access to download the library. The TradingView attribution logo is enabled, and the required notice is included in the page source.
+
+## How to check it
+
+Restart the Go app so it serves the updated page and quote model, then visit `http://localhost:8080`. Pick a provider with stored observations; the chart should show its available candles. Changing site, interval, or buy/sell reloads that series. The API can also be checked directly:
+
+```sh
+curl 'http://localhost:8080/api/candles?site=Milli&interval=1m&limit=10'
+curl 'http://localhost:8080/api/prices'
+```
+
+Providers without a source quote time should now omit `timestamp` from their `/api/prices` entry; `fetchedAt` remains present. Providers with parsed source times continue to include `timestamp`.
+
+## Files and concepts
+
+- `internal/scraper/scraper.go` — represents an unavailable source timestamp explicitly as nil.
+- Timestamp-aware scrapers and `internal/storage/postgres.go` — pass through known timestamps and store an unknown one as SQL `NULL`.
+- `cmd/scraper/index.html` — adds the chart controls, data mapping, refresh behavior, and TradingView attribution.
+- This is still raw-observation-first: chart candles are derived on request and no candle rows are written to the database.
+
+## Follow-up: show chart times in Tehran time
+
+Date: 2026-10-07
+
+Lightweight Charts treats bar times as UTC and does not provide a built-in IANA time-zone setting. The dashboard now converts each candle's UTC instant into its `Asia/Tehran` wall-clock equivalent for chart display. It uses the browser's IANA time-zone data for each timestamp, so the offset is chosen for that date instead of being hardcoded as a fixed 3.5 hours. Stored `fetched_at` values and PostgreSQL's UTC candle buckets remain unchanged; only the chart's displayed times are adjusted. The current observation history is recent, so the chart displays the expected Tehran time labels.
+
+To see the change, restart the app and reload the dashboard. This conversion follows the [Lightweight Charts time-zone guidance](https://tradingview.github.io/lightweight-charts/docs/next/time-zones).
+
+---
+
+# Follow-up: include known fees in candle prices
+
+Date: 2026-10-07
+
+## What was wrong
+
+The candle query originally grouped the raw buy and sell quotes. The comparison table applies known fees, so a provider such as MelliGold—with the same raw quote on both sides and a 0.5% fee on each side—looked different in the table but identical in the chart.
+
+## What changed
+
+The candle query now adjusts each raw observation for the applicable fee **before** it calculates open, high, low, and close. It uses the selected order size from the dashboard:
+
+```text
+buy effective per gram  = raw buy × (1 + rate) + fixed fee ÷ grams
+sell effective per gram = raw sell × (1 - rate) - fixed fee ÷ grams
+```
+
+If the provider says the fee is already included, the raw quote is used unchanged. If the fee is unknown, that observation also remains raw; the API identifies incomplete fee coverage and the chart says so. This avoids pretending an unknown fee is zero. Effective values are rounded to whole toman per gram, matching the underlying price unit. The database still stores the original quote and fee separately; only the requested candle view is adjusted.
+
+The candle API accepts optional `grams` (default `1`, allowed range `0.001`–`10000`). The chart sends the same order-size value used by the price comparison table, and changing grams refreshes both views. For a provider with known fees, buy and sell candles can now differ even when their raw quotes match.
+
+## How to check
+
+Restart the app, choose MelliGold (displayed as `MelliGold`), and compare its buy and sell candles with the order size shown above. The two series should reflect the fee in opposite directions. The API can be queried directly with an explicit size:
+
+```sh
+curl 'http://localhost:8080/api/candles?site=MelliGold&interval=1m&limit=10&grams=1'
+```
+
+`buyFeesKnown` and `sellFeesKnown` in each response candle indicate whether every observation in that candle had a known or already-included fee. Raw rows remain the source of truth; this change only affects on-demand OHLC calculation and chart presentation.
+
+## Files changed
+
+- `internal/storage/postgres.go` — applies fees to individual observations before aggregation, and returns the order size and fee-coverage flags.
+- `cmd/scraper/main.go` — validates and forwards the optional `grams` query parameter.
+- `cmd/scraper/index.html` — uses the shared order-size input and labels candles when fee data is incomplete.
+- `internal/storage/postgres_test.go` — updates the storage call to include its order size.

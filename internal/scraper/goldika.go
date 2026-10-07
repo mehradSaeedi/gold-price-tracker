@@ -50,6 +50,6 @@ func (s GoldikaScraper) GetPrice() (Price, error) {
 		Site:      "Goldika",
 		Buy:       int64((data.Data.Price.Buy / 10)),
 		Sell:      int64((data.Data.Price.Sell / 10)),
-		Timestamp: timestamp,
+		Timestamp: &timestamp,
 	}, nil
 }

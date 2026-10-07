@@ -44,6 +44,7 @@ func (s MelligoldScraper) GetPrice() (Price, error) {
 		return melliGoldFallback(s.Client, "MelliGold")
 	}
 
+	quoteTime := time.Unix(timestamp, 0)
 	return Price{
 		Site:   "MelliGold",
 		Source: "MelliGold public API",
@@ -52,7 +53,7 @@ func (s MelligoldScraper) GetPrice() (Price, error) {
 		// /\ Published buy and sell commission on MelliGold's fee page.
 		BuyFee:    &Fee{Rate: 0.005},
 		SellFee:   &Fee{Rate: 0.005},
-		Timestamp: time.Unix(timestamp, 0),
+		Timestamp: &quoteTime,
 		Available: true,
 	}, nil
 }

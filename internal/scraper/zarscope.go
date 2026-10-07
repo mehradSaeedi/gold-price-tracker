@@ -59,9 +59,9 @@ func (s ZarScopeScraper) GetPrice() (Price, error) {
 		if source.IsStale || source.LatestBuyPrice <= 0 || source.LatestSellPrice <= 0 {
 			return Price{}, fmt.Errorf("Zarscope has no current quote for %s", s.Site)
 		}
-		timestamp, err := time.Parse(time.RFC3339Nano, source.LatestFetchedAt)
-		if err != nil {
-			timestamp = time.Time{}
+		var timestamp *time.Time
+		if parsed, err := time.Parse(time.RFC3339Nano, source.LatestFetchedAt); err == nil {
+			timestamp = &parsed
 		}
 		return Price{
 			Site:      s.Site,

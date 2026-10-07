@@ -42,9 +42,9 @@ func (s SnappSarmayehScraper) GetPrice() (Price, error) {
 	if !data.Gold.Available || data.Gold.PricePerGram <= 0 {
 		return Price{}, fmt.Errorf("Snapp Sarmayeh has no current gold quote")
 	}
-	timestamp, err := time.Parse(time.RFC3339Nano, data.Gold.FetchedAt)
-	if err != nil {
-		timestamp = time.Time{}
+	var timestamp *time.Time
+	if parsed, err := time.Parse(time.RFC3339Nano, data.Gold.FetchedAt); err == nil {
+		timestamp = &parsed
 	}
 	return Price{
 		Site:      "Snapp Sarmayeh",

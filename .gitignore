@@ -51,3 +51,6 @@ Desktop.ini
 # Go workspace files are machine-specific unless deliberately shared
 go.work
 go.work.sum
+
+# Project reports and project reviews
+PROJECT_REVIEW_AND_CHANGELOG.md

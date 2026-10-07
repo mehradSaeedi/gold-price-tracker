@@ -9,17 +9,18 @@ type Fee struct {
 }
 
 type Price struct {
-	Site               string    `json:"site"`
-	Source             string    `json:"source"`
-	Buy                int64     `json:"buy"`
-	Sell               int64     `json:"sell"`
-	BuyFee             *Fee      `json:"buyFee,omitempty"`
-	SellFee            *Fee      `json:"sellFee,omitempty"`
-	FeeIncludedInPrice bool      `json:"feeIncludedInPrice,omitempty"`
-	Timestamp          time.Time `json:"timestamp"`
-	FetchedAt          time.Time `json:"fetchedAt"`
-	Available          bool      `json:"available"`
-	Stale              bool      `json:"stale"`
+	Site               string `json:"site"`
+	Source             string `json:"source"`
+	Buy                int64  `json:"buy"`
+	Sell               int64  `json:"sell"`
+	BuyFee             *Fee   `json:"buyFee,omitempty"`
+	SellFee            *Fee   `json:"sellFee,omitempty"`
+	FeeIncludedInPrice bool   `json:"feeIncludedInPrice,omitempty"`
+	// /\ A nil timestamp means the provider did not give us a quote time.
+	Timestamp *time.Time `json:"timestamp,omitempty"`
+	FetchedAt time.Time  `json:"fetchedAt"`
+	Available bool       `json:"available"`
+	Stale     bool       `json:"stale"`
 }
 
 type Scraper interface {

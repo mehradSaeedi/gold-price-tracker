@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -76,8 +78,44 @@ type priceFetcher interface {
 	GetPrice() (scraper.Price, error)
 }
 
-// /\ Refresh one site's price in the background.
-func pollPrices(name, source string, persist bool, fetcher priceFetcher, store *priceStore, database *storage.Postgres) {
+// /\ These fixed choices let the API accept friendly interval names without trusting arbitrary SQL input.
+var candleIntervals = map[string]int64{
+	"1m":  60,
+	"5m":  5 * 60,
+	"15m": 15 * 60,
+	"1h":  60 * 60,
+	"1d":  24 * 60 * 60,
+}
+
+// /\ parseCandleTime accepts optional RFC3339 timestamps and normalizes them to UTC.
+func parseCandleTime(value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil, fmt.Errorf("time must be RFC3339, for example 2026-10-07T10:30:00Z")
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
+}
+
+// /\ Collect a quote the same way for HTTP scrapers and the WebSocket feed: validate it, show it, then append it.
+func recordPrice(price scraper.Price, store *priceStore, database *storage.Postgres) error {
+	price, err := store.set(price)
+	if err != nil {
+		return fmt.Errorf("invalid quote: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := database.SaveObservation(ctx, price); err != nil {
+		return fmt.Errorf("save quote to PostgreSQL: %w", err)
+	}
+	return nil
+}
+
+// /\ Refresh one site's price in the background and save each accepted result.
+func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, database *storage.Postgres) {
 	refresh := func() {
 		price, err := fetcher.GetPrice()
 		if err != nil {
@@ -87,21 +125,11 @@ func pollPrices(name, source string, persist bool, fetcher priceFetcher, store *
 		if price.Source == "" {
 			price.Source = source
 		}
-		price, err = store.set(price)
-		if err != nil {
-			log.Printf("%s returned invalid quote: %v", name, err)
+		if err := recordPrice(price, store, database); err != nil {
+			log.Printf("%s quote update failed: %v", name, err)
 			return
 		}
-		if persist {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err := database.SaveObservation(ctx, price)
-			cancel()
-			if err != nil {
-				log.Printf("%s quote was not saved to PostgreSQL: %v", name, err)
-				return
-			}
-		}
-		log.Printf("updated %s prices", price.Site)
+		log.Printf("updated and saved %s prices", price.Site)
 	}
 
 	refresh()
@@ -138,28 +166,26 @@ func main() {
 	fetchers := []struct {
 		name    string
 		source  string
-		// /\ This flag makes Milli the only database-writing pilot in Stage 1.
-		persist bool
 		fetcher priceFetcher
 	}{
-		{"Milli", "Milli public API", true, scraper.MilliScraper{Client: client}},
+		{"Milli", "Milli public API", scraper.MilliScraper{Client: client}},
 		// /\ Add WallGold to the same 30-second polling loop as the REST scrapers.
-		{"WallGold", "WallGold public API", false, scraper.WallGoldScraper{Client: client}},
-		{"Talano", "Talano public API", false, scraper.TalanoScraper{Client: client}},
-		{"Goldika", "Goldika public API", false, scraper.GoldikaScraper{Client: client}},
-		{"Talasea", "Talasea public API", false, scraper.TalaseaScraper{Client: client}},
-		{"Taline", "Taline website", false, scraper.TalineScraper{Client: client}},
-		{"MelliGold", "MelliGold API or Zarscope fallback", false, scraper.MelligoldScraper{Client: client}},
-		{"TapsiGold", "MelliGold API or Zarscope fallback", false, scraper.TapsiScraper{Client: client}},
-		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", false, scraper.SnappSarmayehScraper{Client: client}},
+		{"WallGold", "WallGold public API", scraper.WallGoldScraper{Client: client}},
+		{"Talano", "Talano public API", scraper.TalanoScraper{Client: client}},
+		{"Goldika", "Goldika public API", scraper.GoldikaScraper{Client: client}},
+		{"Talasea", "Talasea public API", scraper.TalaseaScraper{Client: client}},
+		{"Taline", "Taline website", scraper.TalineScraper{Client: client}},
+		{"MelliGold", "MelliGold API or Zarscope fallback", scraper.MelligoldScraper{Client: client}},
+		{"TapsiGold", "MelliGold API or Zarscope fallback", scraper.TapsiScraper{Client: client}},
+		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", scraper.SnappSarmayehScraper{Client: client}},
 		// /\ These four do not expose a usable public quote API, so use Zarscope's public feed.
-		{"Daric", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
-		{"Invi", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},
-		{"Digi Gold", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
-		{"Zarpin", "Zarscope public feed", false, scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
+		{"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
+		{"Invi", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},
+		{"Digi Gold", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
+		{"Zarpin", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
 	}
 	for _, item := range fetchers {
-		go pollPrices(item.name, item.source, item.persist, item.fetcher, store, database)
+		go pollPrices(item.name, item.source, item.fetcher, store, database)
 	}
 
 	hamrah := scraper.NewHamrahScraper()
@@ -171,8 +197,8 @@ func main() {
 					if price.Source == "" {
 						price.Source = "HamrahGold WebSocket"
 					}
-					if _, err := store.set(price); err != nil {
-						log.Printf("HamrahGold returned invalid quote: %v", err)
+					if err := recordPrice(price, store, database); err != nil {
+						log.Printf("HamrahGold quote update failed: %v", err)
 					}
 				}
 			}()
@@ -193,6 +219,69 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		if err := json.NewEncoder(w).Encode(store.list()); err != nil {
 			log.Printf("encode prices: %v", err)
+		}
+	})
+	// /\ Return OHLC candles derived from raw observations, with newest history bounded by a result limit.
+	http.HandleFunc("/api/candles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		query := r.URL.Query()
+		site := query.Get("site")
+		if site == "" {
+			http.Error(w, "site is required", http.StatusBadRequest)
+			return
+		}
+		interval := query.Get("interval")
+		seconds, ok := candleIntervals[interval]
+		if !ok {
+			http.Error(w, "interval must be one of: 1m, 5m, 15m, 1h, 1d", http.StatusBadRequest)
+			return
+		}
+		// /\ Fixed fees change their per-gram impact with order size, so let the chart send the selected grams.
+		grams := 1.0
+		if rawGrams := query.Get("grams"); rawGrams != "" {
+			grams, err = strconv.ParseFloat(rawGrams, 64)
+			if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
+				http.Error(w, "grams must be between 0.001 and 10000", http.StatusBadRequest)
+				return
+			}
+		}
+		from, err := parseCandleTime(query.Get("from"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		to, err := parseCandleTime(query.Get("to"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if from != nil && to != nil && !from.Before(*to) {
+			http.Error(w, "from must be earlier than to", http.StatusBadRequest)
+			return
+		}
+		limit := 500
+		if rawLimit := query.Get("limit"); rawLimit != "" {
+			limit, err = strconv.Atoi(rawLimit)
+			if err != nil || limit < 1 || limit > 2000 {
+				http.Error(w, "limit must be between 1 and 2000", http.StatusBadRequest)
+				return
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		candles, err := database.Candles(ctx, site, interval, seconds, from, to, limit, grams)
+		if err != nil {
+			log.Printf("load %s %s candles: %v", site, interval, err)
+			http.Error(w, "could not load candles", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err := json.NewEncoder(w).Encode(candles); err != nil {
+			log.Printf("encode candles: %v", err)
 		}
 	})
 	http.Handle("/", http.FileServer(http.FS(page)))

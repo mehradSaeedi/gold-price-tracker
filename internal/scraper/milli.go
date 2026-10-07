@@ -56,6 +56,6 @@ func (s MilliScraper) GetPrice() (Price, error) {
 		// /\ Milli publishes a 0.5% fee for each side of a trade.
 		BuyFee:    &Fee{Rate: 0.005},
 		SellFee:   &Fee{Rate: 0.005},
-		Timestamp: timestamp,
+		Timestamp: &timestamp,
 	}, nil
 }
