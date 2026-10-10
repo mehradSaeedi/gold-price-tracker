@@ -35,6 +35,12 @@
     /* /\ These controls only choose which already-derived candle series the chart requests. */
     .chart-section { margin: 0 0 20px; }
     .chart-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+    /* /\ Drawing buttons select a built-in chart overlay to place with the mouse. */
+    .drawing-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 20px 12px; }
+    .drawing-tool { padding: 7px 10px; border: 1px solid #d8d7ce; border-radius: 8px; background: #fff; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+    .drawing-tool:hover, .drawing-tool[aria-pressed="true"] { border-color: var(--green); background: #edf6ef; color: var(--green); }
+    .drawing-tool-clear { margin-left: auto; color: #9d4b3a; }
+    .drawing-help { margin: 0; padding: 0 20px 10px; color: var(--muted); font-size: 12px; }
     .chart-control { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
     select { min-width: 130px; padding: 9px 30px 9px 10px; border: 1px solid #d8d7ce; border-radius: 9px; background: white; color: var(--ink); font: inherit; }
     select:focus { outline: 3px solid #c4933633; border-color: var(--gold); }
@@ -92,7 +98,7 @@
       <label class="size-control" for="grams">Order size <span><input id="grams" type="number" min="0.001" max="10000" step="0.001" value="1"> grams</span></label>
       <p id="status" role="status" aria-live="polite">Loading prices…</p>
     </div>
-    <!-- /\ TradingView Lightweight Charts™ Copyright (c) 2025 TradingView, Inc. https://www.tradingview.com/ -->
+    <!-- /\ KLineChart is distributed under Apache License 2.0: https://github.com/klinecharts/KLineChart/blob/main/LICENSE -->
     <section class="chart-section" aria-labelledby="chart-title">
       <div class="section-heading">
         <h2 id="chart-title">Fee-adjusted price per gram</h2>
@@ -104,6 +110,17 @@
       </div>
       <div style="padding: 0 20px 16px">
         <p id="chart-status" role="status" aria-live="polite">Waiting for sites…</p>
+        <div class="drawing-toolbar" aria-label="Chart drawing tools">
+          <button class="drawing-tool" type="button" data-tool="segment">Trend line</button>
+          <button class="drawing-tool" type="button" data-tool="horizontalStraightLine">Horizontal line</button>
+          <button class="drawing-tool" type="button" data-tool="verticalStraightLine">Vertical line</button>
+          <button class="drawing-tool" type="button" data-tool="rayLine">Ray</button>
+          <button class="drawing-tool" type="button" data-tool="parallelStraightLine">Parallel channel</button>
+          <button class="drawing-tool" type="button" data-tool="fibonacciLine">Fibonacci</button>
+          <button class="drawing-tool" type="button" data-tool="brush">Brush</button>
+          <button class="drawing-tool drawing-tool-clear" id="clear-drawings" type="button">Clear drawings</button>
+        </div>
+        <p class="drawing-help">Choose a tool, then click or drag on the chart. Right-click a drawing to remove it. Drawings are saved in this browser for the selected site, interval, side, and order size.</p>
         <div id="candle-chart" aria-label="Candlestick chart of stored gold price observations"></div>
       </div>
     </section>
@@ -119,47 +136,117 @@
     </div>
   </main>
 
-  <script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/klinecharts@10.0.3/dist/umd/klinecharts.min.js"></script>
   <script>
     const numberFormat = new Intl.NumberFormat();
     // /\ Keep one request counter so a slow response for the previous selection cannot replace the current chart.
     let chartRequest = 0;
     let chart = null;
-    let candleSeries = null;
+    let chartBars = [];
+    let currentDrawingScope = "";
+    const drawingGroup = "user-drawings";
 
-    // /\ Lightweight Charts reads timestamps as UTC, so shift each instant to Tehran wall time before plotting it.
-    function toTehranChartTime(unixSeconds) {
-      const instant = new Date(unixSeconds * 1000);
-      const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-      }).formatToParts(instant).filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
-      const tehranWallClockAsUTC = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-      return unixSeconds + Math.round((tehranWallClockAsUTC - instant.getTime()) / 1000);
+    // /\ Keep drawings separate for each price series so a buy-side line is not reused on another chart.
+    function drawingStorageKey(scope) {
+      return `gold-price-chart-drawings:v1:${scope}`;
     }
 
-    // /\ Create the chart once; the selectors below only replace its candle data.
+    // /\ Save only the drawing settings and anchor points; chart objects themselves contain functions and cannot be serialized.
+    function persistDrawings(scope) {
+      if (!chart || scope !== currentDrawingScope) return;
+      try {
+        const drawings = chart.getOverlays({ groupId: drawingGroup }).map((overlay) => ({
+          name: overlay.name,
+          id: overlay.id,
+          groupId: drawingGroup,
+          points: (overlay.points || []).map(({ timestamp, dataIndex, value }) => ({ timestamp, dataIndex, value })),
+          styles: overlay.styles,
+          visible: overlay.visible,
+          lock: overlay.lock,
+          mode: overlay.mode,
+        }));
+        localStorage.setItem(drawingStorageKey(scope), JSON.stringify(drawings));
+      } catch (error) {
+        document.getElementById("chart-status").textContent = `Could not save drawings in this browser: ${error.message}`;
+      }
+    }
+
+    // /\ Reconnect these handlers after loading a drawing, so edits and deletions get saved too.
+    function drawingEvents(scope) {
+      const save = () => persistDrawings(scope);
+      return {
+        onDrawEnd: () => {
+          save();
+          setDrawingToolActive(null);
+        },
+        onPressedMoveEnd: save,
+        onRemoved: save,
+      };
+    }
+
+    // /\ Restore this chart's saved lines after its data is loaded.
+    function restoreDrawings(scope) {
+      if (!chart || scope !== currentDrawingScope) return;
+      try {
+        const saved = JSON.parse(localStorage.getItem(drawingStorageKey(scope)) || "[]");
+        const existing = new Set(chart.getOverlays({ groupId: drawingGroup }).map((overlay) => overlay.id));
+        for (const drawing of saved) {
+          if (!existing.has(drawing.id)) {
+            chart.createOverlay({ ...drawing, ...drawingEvents(scope) });
+          }
+        }
+      } catch (error) {
+        document.getElementById("chart-status").textContent = `Could not restore saved drawings: ${error.message}`;
+      }
+    }
+
+    // /\ Match KLineChart's period setting to the interval used by our candle API.
+    function chartPeriod(interval) {
+      if (interval === "1h") return { span: 1, type: "hour" };
+      if (interval === "1d") return { span: 1, type: "day" };
+      return { span: Number.parseInt(interval, 10), type: "minute" };
+    }
+
+    // /\ Create the chart and give it the current candle array through its data-loader API.
     function initializeChart() {
       const status = document.getElementById("chart-status");
-      if (!window.LightweightCharts) {
+      if (!window.klinecharts) {
         status.textContent = "The chart library did not load. Check your internet connection and reload.";
         return;
       }
-      chart = LightweightCharts.createChart(document.getElementById("candle-chart"), {
-        autoSize: true,
-        layout: { background: { type: "solid", color: "#ffffff" }, textColor: "#697267", attributionLogo: true },
-        grid: { vertLines: { color: "#eff0eb" }, horzLines: { color: "#eff0eb" } },
-        rightPriceScale: { borderColor: "#e6e8df" },
-        timeScale: { borderColor: "#e6e8df", timeVisible: true, secondsVisible: false },
-      });
-      candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-        upColor: "#16835b", downColor: "#cf5547", borderVisible: false,
-        wickUpColor: "#16835b", wickDownColor: "#cf5547",
-        priceFormat: { type: "price", precision: 0, minMove: 1 },
+      chart = window.klinecharts.init("candle-chart");
+      chart.setTimezone("Asia/Tehran");
+      chart.setLocale("en-US");
+      chart.setSymbol({ ticker: "Gold" });
+      chart.setPeriod({ span: 1, type: "minute" });
+      chart.setDataLoader({
+        getBars: ({ callback }) => {
+          const scope = currentDrawingScope;
+          callback(chartBars, { forward: false, backward: false });
+          requestAnimationFrame(() => restoreDrawings(scope));
+        },
       });
     }
 
-    // /\ Ask the existing API for fee-adjusted candles at this order size and map them into the chart library's format.
+    // /\ Start one built-in interactive overlay, then let KLineChart handle placement, selection, and resizing.
+    function startDrawing(name, button) {
+      if (!chart) return;
+      const scope = currentDrawingScope;
+      if (!scope) return;
+      setDrawingToolActive(button);
+      chart.createOverlay({ name, groupId: drawingGroup, mode: "weak_magnet", ...drawingEvents(scope) });
+      document.getElementById("chart-status").textContent = `Drawing ${button.textContent.toLowerCase()} — place it on the chart.`;
+    }
+
+    // /\ Show which tool is armed so it's clear that the next chart interaction will place a drawing.
+    function setDrawingToolActive(activeButton) {
+      for (const button of document.querySelectorAll("[data-tool]")) {
+        const active = button === activeButton;
+        button.setAttribute("aria-pressed", String(active));
+      }
+    }
+
+    // /\ Ask the existing API for fee-adjusted candles and convert its fields to KLineChart's timestamp-in-milliseconds shape.
     async function refreshChart() {
       const request = ++chartRequest;
       const status = document.getElementById("chart-status");
@@ -175,14 +262,27 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const candles = await response.json();
         if (request !== chartRequest) return;
+        const scope = JSON.stringify([site, interval, side, grams]);
         const data = candles.map((candle) => ({
-          time: toTehranChartTime(Math.floor(Date.parse(candle.timestamp) / 1000)),
+          timestamp: Date.parse(candle.timestamp),
           open: candle[side].open, high: candle[side].high,
           low: candle[side].low, close: candle[side].close,
-        })).filter((candle) => Number.isFinite(candle.time));
-        candleSeries.setData(data);
+          volume: candle.observationCount,
+        })).filter((candle) => Number.isFinite(candle.timestamp));
+        const changedScope = scope !== currentDrawingScope;
+        if (changedScope && currentDrawingScope) persistDrawings(currentDrawingScope);
+        currentDrawingScope = scope;
+        if (changedScope && chart) chart.removeOverlay({ groupId: drawingGroup });
+        chartBars = data;
+        if (chart) {
+          if (changedScope) {
+            chart.setSymbol({ ticker: scope, pricePrecision: 0, volumePrecision: 0 });
+            chart.setPeriod(chartPeriod(interval));
+          } else {
+            chart.resetData();
+          }
+        }
         if (data.length) {
-          chart.timeScale().fitContent();
           const feesKnown = candles.every((candle) => candle[`${side}FeesKnown`]);
           const feeNotice = feesKnown ? "" : " · some fees unknown; raw quote used for those readings";
           status.textContent = `${site} · ${side} · ${interval} · ${grams}g order · ${data.length} candles · Tehran time${feeNotice}`;
@@ -192,6 +292,15 @@
       } catch (error) {
         if (request === chartRequest) status.textContent = `Could not load candles: ${error.message}`;
       }
+    }
+
+    // /\ Return the app's 30-second refresh to normal chart data handling, without adding an extra drawing.
+    function clearAllDrawings() {
+      if (!chart || !currentDrawingScope) return;
+      chart.removeOverlay({ groupId: drawingGroup });
+      localStorage.removeItem(drawingStorageKey(currentDrawingScope));
+      setDrawingToolActive(null);
+      document.getElementById("chart-status").textContent = "All drawings for this chart have been cleared.";
     }
 
     // /\ Keep the site's dropdown in sync with providers known to the existing live-price API.
@@ -327,6 +436,10 @@
     for (const control of ["chart-site", "chart-interval", "chart-side"]) {
       document.getElementById(control).addEventListener("change", refreshChart);
     }
+    for (const button of document.querySelectorAll("[data-tool]")) {
+      button.addEventListener("click", () => startDrawing(button.dataset.tool, button));
+    }
+    document.getElementById("clear-drawings").addEventListener("click", clearAllDrawings);
     setInterval(refreshChart, 30000);
   </script>
 </body>
