@@ -21,7 +21,7 @@ import (
 
 // /\ Bundle the dashboard and chart assets so the server can run from any working directory.
 //
-//go:embed index.html charting_library
+//go:embed index.html app.js charting_library
 var page embed.FS
 
 // /\ In-memory prices shared by the scrapers and the dashboard page.

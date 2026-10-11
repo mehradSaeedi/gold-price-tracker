@@ -3,7 +3,6 @@ package scraper
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
@@ -24,8 +23,6 @@ func (s MelligoldScraper) GetPrice() (Price, error) {
 	url := "https://melligold.com/api/v1/exchange/buy-sell-price/?symbol=XAU18"
 
 	resp, err := s.Client.Get(url)
-	log.Printf("Melligold status: %s", resp.Status)
-	log.Printf("Melligold location: %s", resp.Header.Get("Location"))
 
 	if err != nil {
 		return Price{}, err
