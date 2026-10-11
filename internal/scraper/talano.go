@@ -7,11 +7,11 @@ import (
 )
 
 type talanoResponse struct {
-	BuyPrice        int64   `json:"buyPrice"`
-	SellPrice       int64   `json:"sellPrice"`
+	BuyPrice        int64    `json:"buyPrice"`
+	SellPrice       int64    `json:"sellPrice"`
 	BuyFee          *float64 `json:"buyFee"`
 	SellFee         *float64 `json:"sellFee"`
-	PriceSourceType string  `json:"priceSourceType"`
+	PriceSourceType string   `json:"priceSourceType"`
 }
 
 type TalanoScraper struct {
@@ -43,11 +43,12 @@ func (s TalanoScraper) GetPrice() (Price, error) {
 	}
 
 	return Price{
-		Site:    "Talano",
-		Buy:     data.BuyPrice * 1000,
-		Sell:    data.SellPrice * 1000,
-		BuyFee:  talanoFee(data.BuyFee),
-		SellFee: talanoFee(data.SellFee),
+		Site:               "Talano",
+		Buy:                data.BuyPrice * 1000,
+		Sell:               data.SellPrice * 1000,
+		FeeIncludedInPrice: true,
+		BuyFee:             talanoFee(data.BuyFee),
+		SellFee:            talanoFee(data.SellFee),
 	}, nil
 
 }

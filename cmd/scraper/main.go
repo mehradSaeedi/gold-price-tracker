@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"sort"
 	"strconv"
@@ -18,7 +19,9 @@ import (
 	"github.com/mehradSaeedi/gold-price-tracker/internal/storage"
 )
 
-//go:embed index.html
+// /\ Bundle the dashboard and chart assets so the server can run from any working directory.
+//
+//go:embed index.html charting_library
 var page embed.FS
 
 // /\ In-memory prices shared by the scrapers and the dashboard page.
@@ -142,7 +145,16 @@ func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, da
 
 // /\ Start the scrapers and serve the dashboard and its price data.
 func main() {
-	client := &http.Client{Timeout: 10 * time.Second}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Jar:     jar,
+	}
+
 	// /\ Keep database credentials in the environment so they never need to live in source code.
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
@@ -160,7 +172,7 @@ func main() {
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
-		"TapsiGold", "Daric", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin",
+		"TapsiGold", "Daric", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric",
 	})
 
 	fetchers := []struct {
@@ -178,8 +190,9 @@ func main() {
 		{"MelliGold", "MelliGold API or Zarscope fallback", scraper.MelligoldScraper{Client: client}},
 		{"TapsiGold", "MelliGold API or Zarscope fallback", scraper.TapsiScraper{Client: client}},
 		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", scraper.SnappSarmayehScraper{Client: client}},
+		{"Daric", "Daric public API", scraper.DaricScraper{Client: client}},
 		// /\ These four do not expose a usable public quote API, so use Zarscope's public feed.
-		{"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
+		// {"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
 		{"Invi", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},
 		{"Digi Gold", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
 		{"Zarpin", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},

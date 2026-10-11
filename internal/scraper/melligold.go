@@ -2,8 +2,9 @@ package scraper
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -12,7 +13,7 @@ type melligoldResponse struct {
 		Buy  int64 `json:"price_buy"`
 		Sell int64 `json:"price_sell"`
 	} `json:"data"`
-	CreatedAt string `json:"timestamp"`
+	CreatedAt int64 `json:"timestamp"`
 }
 
 type MelligoldScraper struct {
@@ -20,31 +21,29 @@ type MelligoldScraper struct {
 }
 
 func (s MelligoldScraper) GetPrice() (Price, error) {
-	url := "https://melligold.com/api/v1/exchange/buy-sell-price?symbol=XAU18"
+	url := "https://melligold.com/api/v1/exchange/buy-sell-price/?symbol=XAU18"
 
 	resp, err := s.Client.Get(url)
+	log.Printf("Melligold status: %s", resp.Status)
+	log.Printf("Melligold location: %s", resp.Header.Get("Location"))
+
 	if err != nil {
-		return melliGoldFallback(s.Client, "MelliGold")
+		return Price{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return melliGoldFallback(s.Client, "MelliGold")
+		return Price{}, fmt.Errorf("Melligold returned status %d", resp.StatusCode)
 	}
 
 	var data melligoldResponse
 
 	if err = json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return melliGoldFallback(s.Client, "MelliGold")
+		return Price{}, err
 	}
 
-	timestamp, err := strconv.ParseInt(data.CreatedAt, 10, 64)
-	if err != nil {
-		return melliGoldFallback(s.Client, "MelliGold")
-	}
-
-	quoteTime := time.Unix(timestamp, 0)
+	quoteTime := time.Unix(data.CreatedAt, 0)
 	return Price{
 		Site:   "MelliGold",
 		Source: "MelliGold public API",
@@ -56,13 +55,4 @@ func (s MelligoldScraper) GetPrice() (Price, error) {
 		Timestamp: &quoteTime,
 		Available: true,
 	}, nil
-}
-
-// /\ MelliGold redirects its public endpoint in some networks, so fall back to Zarscope's collected quote.
-func melliGoldFallback(client *http.Client, site string) (Price, error) {
-	price, err := (ZarScopeScraper{Client: client, Slug: "melli-gold", Site: site}).GetPrice()
-	if err == nil {
-		price.Source = "Zarscope public feed (fallback)"
-	}
-	return price, err
 }

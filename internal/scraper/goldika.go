@@ -47,9 +47,12 @@ func (s GoldikaScraper) GetPrice() (Price, error) {
 	}
 
 	return Price{
-		Site:      "Goldika",
-		Buy:       int64((data.Data.Price.Buy / 10)),
-		Sell:      int64((data.Data.Price.Sell / 10)),
-		Timestamp: &timestamp,
+		Site:               "Goldika",
+		Buy:                int64((data.Data.Price.Buy / 10)),
+		Sell:               int64((data.Data.Price.Sell / 10)),
+		BuyFee:             &Fee{Rate: 0.012},
+		SellFee:            &Fee{Rate: 0.012},
+		FeeIncludedInPrice: true,
+		Timestamp:          &timestamp,
 	}, nil
 }
