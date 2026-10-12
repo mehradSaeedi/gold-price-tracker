@@ -172,7 +172,7 @@ func main() {
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
-		"TapsiGold", "Daric", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric",
+		"TapsiGold", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric", "Zarafza", "Zarpay",
 	})
 
 	fetchers := []struct {
@@ -191,6 +191,8 @@ func main() {
 		{"TapsiGold", "MelliGold API or Zarscope fallback", scraper.TapsiScraper{Client: client}},
 		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", scraper.SnappSarmayehScraper{Client: client}},
 		{"Daric", "Daric public API", scraper.DaricScraper{Client: client}},
+		{"Zarafza", "Zarafza public API", scraper.ZarafzaScraper{Client: client}},
+		{"Zarpay", "Zarpay public API", scraper.ZarpayScraper{Client: client}},
 		// /\ These four do not expose a usable public quote API, so use Zarscope's public feed.
 		// {"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
 		{"Invi", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},

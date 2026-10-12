@@ -1,6 +1,17 @@
     const numberFormat = new Intl.NumberFormat();
     // /\ TradingView's chart asks this adapter for its supported resolutions and stored bars.
     const supportedResolutions = ["1", "5", "15", "60", "1D"];
+    // /\ Show time-axis labels using the Persian calendar while keeping time ticks in UTC as TradingView expects.
+    const persianAxisFormats = {
+      Year: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", timeZone: "UTC" }),
+      Month: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { month: "short", timeZone: "UTC" }),
+      DayOfMonth: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", timeZone: "UTC" }),
+      Date: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }),
+      Time: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }),
+      TimeWithSeconds: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: "UTC" }),
+    };
+    // /\ TradingView requests an exact history count as well as a time range; cap each request to the API's 2,000-bar limit.
+    const maxHistoryBarsPerRequest = 2000;
     const subscriptions = new Map();
     let widget = null;
     let widgetReady = false;
@@ -94,10 +105,8 @@
         grams: String(selection.grams),
         limit: String(limit),
       });
-      if (Number.isFinite(from) && Number.isFinite(to)) {
-        params.set("from", new Date(from * 1000).toISOString());
-        params.set("to", new Date(to * 1000).toISOString());
-      }
+      if (Number.isFinite(from)) params.set("from", new Date(from * 1000).toISOString());
+      if (Number.isFinite(to)) params.set("to", new Date(to * 1000).toISOString());
       const response = await fetch(`/api/candles?${params}`);
       if (!response.ok) throw new Error(`Candle API returned HTTP ${response.status}`);
       const candles = await response.json();
@@ -107,7 +116,6 @@
         high: candle[selection.side].high,
         low: candle[selection.side].low,
         close: candle[selection.side].close,
-        volume: candle.observationCount,
       })).filter((bar) => Number.isFinite(bar.time));
       return { bars, candles, interval };
     }
@@ -157,11 +165,12 @@
       async getBars(_symbolInfo, resolution, rangeOrFrom, toOrOnResult, resultOrError, errorOrFirstCall, legacyFirstCall) {
         let from;
         let to;
+        let countBack = maxHistoryBarsPerRequest;
         let onResult;
         let onError;
         let isFirstCall;
         if (rangeOrFrom && typeof rangeOrFrom === "object") {
-          ({ from, to } = rangeOrFrom);
+          ({ from, to, countBack = maxHistoryBarsPerRequest } = rangeOrFrom);
           onResult = toOrOnResult;
           onError = resultOrError;
           isFirstCall = rangeOrFrom.firstDataRequest;
@@ -178,7 +187,24 @@
           return;
         }
         try {
-          let { bars, candles, interval } = await loadBars(selection, resolution, from, to);
+          let { bars, candles, interval } = await loadBars(
+            selection, resolution, from, to, maxHistoryBarsPerRequest,
+          );
+          const requiredBars = Number.isFinite(countBack)
+            ? Math.min(maxHistoryBarsPerRequest, Math.max(1, Math.ceil(countBack)))
+            : maxHistoryBarsPerRequest;
+          const missingBars = Math.max(0, requiredBars - bars.length);
+          if (missingBars > 0 && Number.isFinite(from)) {
+            // /\ If the visible time window is sparse, ask the API for the missing older bars before it starts.
+            const earlier = await loadBars(selection, resolution, null, from, missingBars);
+            const firstRequestedTime = bars.length ? bars[0].time : Infinity;
+            const earlierBars = earlier.bars.filter((bar) => bar.time < firstRequestedTime);
+            const earlierCandles = earlier.candles.filter(
+              (candle) => Date.parse(candle.timestamp) < firstRequestedTime,
+            );
+            bars = [...earlierBars, ...bars];
+            candles = [...earlierCandles, ...candles];
+          }
           let loadedRecentFallback = false;
           if (isFirstCall && bars.length === 0) {
             ({ bars, candles, interval } = await loadBars(selection, resolution, null, null));
@@ -231,10 +257,19 @@
         interval: "1",
         locale: "en",
         timezone: "Asia/Tehran",
+        // /\ Convert Gregorian time-axis dates to Persian-calendar labels without changing the candle timestamps.
+        custom_formatters: {
+          tickMarkFormatter(date, tickMarkType) {
+            const formatter = persianAxisFormats[tickMarkType] || persianAxisFormats.Date;
+            return formatter.format(date);
+          },
+        },
         autosize: true,
         theme: "light",
         // / Show the drawing toolbar in fullscreen, and leave the rest of the library features at their defaults.
         enabled_features: ["side_toolbar_in_fullscreen_mode"],
+        // / Hide unsupported search/compare controls and the default volume pane; our count is not traded volume.
+        disabled_features: ["header_symbol_search", "header_compare", "create_volume_indicator_by_default"],
         // / Put commonly used drawing and measuring tools on the chart for one-click access.
         favorites: {
           drawingTools: [
@@ -325,10 +360,10 @@
         const site = `${price.site}\n${price.source || "Source unknown"}${price.stale ? " · STALE" : ""}`;
         const quoteDate = price.timestamp ? new Date(price.timestamp) : null;
         const quoteTime = quoteDate && !Number.isNaN(quoteDate.getTime())
-          ? `Source quote: ${quoteDate.toLocaleTimeString()}`
+          ? `Source quote: ${quoteDate.toLocaleTimeString(undefined, { timeZone: "Asia/Tehran" })}`
           : "Source quote time unavailable";
         const refreshed = price.fetchedAt
-          ? `Fetched: ${new Date(price.fetchedAt).toLocaleTimeString()}`
+          ? `Fetched: ${new Date(price.fetchedAt).toLocaleTimeString(undefined, { timeZone: "Asia/Tehran" })}`
           : "Not fetched yet";
         const unit = price.available && price[field] > 0
           ? `${numberFormat.format(price[field])} toman\n${formatFee(price[feeField], price.feeIncludedInPrice)}\n${quoteTime}\n${refreshed}`

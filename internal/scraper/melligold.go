@@ -11,8 +11,9 @@ type melligoldResponse struct {
 	Data struct {
 		Buy  int64 `json:"price_buy"`
 		Sell int64 `json:"price_sell"`
+		// / The provider puts its quote timestamp inside the data object with the prices.
+		CreatedAt int64 `json:"timestamp"`
 	} `json:"data"`
-	CreatedAt int64 `json:"timestamp"`
 }
 
 type MelligoldScraper struct {
@@ -40,16 +41,16 @@ func (s MelligoldScraper) GetPrice() (Price, error) {
 		return Price{}, err
 	}
 
-	quoteTime := time.Unix(data.CreatedAt, 0)
+	quoteTime := time.Unix(data.Data.CreatedAt, 0)
 	return Price{
-		Site:   "MelliGold",
-		Source: "MelliGold public API",
-		Buy:    data.Data.Buy,
-		Sell:   data.Data.Sell,
-		// /\ Published buy and sell commission on MelliGold's fee page.
+		Site:      "MelliGold",
+		Source:    "MelliGold public API",
+		Buy:       data.Data.Buy,
+		Sell:      data.Data.Sell,
 		BuyFee:    &Fee{Rate: 0.005},
 		SellFee:   &Fee{Rate: 0.005},
 		Timestamp: &quoteTime,
 		Available: true,
+		// /\ Published buy and sell commission on MelliGold's fee page.
 	}, nil
 }
