@@ -31,7 +31,8 @@
     .size-control { display: flex; align-items: center; gap: 12px; font-weight: 650; }
     input { width: 112px; padding: 10px 12px; border: 1px solid #d8d7ce; border-radius: 9px; background: white; color: var(--ink); font: inherit; }
     input:focus { outline: 3px solid #c4933633; border-color: var(--gold); }
-    #status { margin: 0; color: var(--muted); font-size: 13px; }
+    /* /\ Set the refresh message apart from the order-size control without making it shout. */
+    #status { margin: 0; padding: 5px 10px; border: 1px solid #ece9df; border-radius: 999px; background: #fff; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     /* /\ These controls only choose which already-derived candle series the chart requests. */
     .chart-section { margin: 0 0 20px; }
     .chart-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
@@ -42,34 +43,93 @@
     #candle-chart { width: 100%; height: 620px; }
     .tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
     section { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: 0 8px 28px #27321c0a; }
-    .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 14px; }
-    h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    /* /\ Give the buy and sell comparisons a quiet accent so they are easier to tell apart. */
+    .tables > section:first-child { border-top: 3px solid #5b866b; }
+    .tables > section:last-child { border-top: 3px solid #bd9a55; }
+    /* /\ Give each section title a light baseline so it reads as a separate header row. */
+    .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 11px; border-bottom: 1px solid #eff0eb; background: #fcfcfa; }
+    h2 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
     .direction { color: var(--muted); font-size: 12px; }
     .table-wrap { overflow-x: auto; }
-    table { width: 100%; min-width: 540px; border-collapse: collapse; text-align: left; }
-    th { padding: 10px 16px; background: #f7f8f4; color: #777f72; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
-    td { padding: 14px 16px; border-top: 1px solid #eff0eb; vertical-align: top; white-space: pre-line; }
+    /* /\ Keep the comparison compact and give each kind of information a predictable lane. */
+    .tables table { width: 100%; min-width: 500px; table-layout: fixed; border-collapse: collapse; text-align: left; }
+    .tables th:nth-child(1), .tables td:nth-child(1) { width: 25%; }
+    .tables th:nth-child(2), .tables td:nth-child(2) { width: 39%; }
+    .tables th:nth-child(3), .tables td:nth-child(3) { width: 36%; }
+    th { padding: 8px 12px; background: #f7f8f4; color: #777f72; font-size: 10px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
+    td { padding: 10px 12px; border-top: 1px solid #eff0eb; vertical-align: middle; white-space: pre-line; }
+    /* /\ Align the toman amounts by their digits to make provider prices quicker to scan. */
+    .tables th:nth-child(n + 2), .tables td:nth-child(n + 2) { text-align: right; font-variant-numeric: tabular-nums; }
     tbody tr { transition: background .15s ease; }
     tbody tr:hover { background: #fafbf8; }
-    .provider-cell { min-width: 150px; font-weight: 700; }
-    .provider-source { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 450; }
+    .provider-cell { min-width: 0; font-size: 13px; font-weight: 700; }
+    /* /\ Make provider names look clickable while keeping the table's quiet palette. */
+    .provider-link { color: inherit; text-decoration: none; text-underline-offset: 3px; }
+    .provider-link:hover { color: #315f45; text-decoration: underline; }
+    .provider-link:focus-visible { border-radius: 3px; outline: 2px solid #6d9076; outline-offset: 3px; }
+    .provider-source { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 450; }
     .quote-cell { color: var(--ink); font-variant-numeric: tabular-nums; }
-    .quote-value { display: block; margin-bottom: 5px; font-size: 16px; font-weight: 700; }
-    .fee-label { display: inline-block; margin: 0 0 7px; padding: 2px 7px; border: 1px solid #eadfca; border-radius: 999px; background: #fbf6eb; color: #826324; font-size: 11px; font-weight: 650; }
+    .quote-value { display: block; margin-bottom: 3px; font-size: 13px; font-weight: 650; }
+    /* /\ Spell out the last move so direction is clear from the symbol and the word. */
+    .price-direction { display: inline-block; margin: 0 0 4px; padding: 1px 6px; border: 1px solid; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 1.4; }
+    .direction-up { border-color: #d4e6d7; background: #f0f7f1; color: #347048; }
+    .direction-down { border-color: #ecd9d4; background: #fbf2ef; color: #9a5145; }
+    /* /\ Pop the direction badge once when a new quote movement arrives. */
+    .price-direction.movement-new { animation: movement-pop 500ms cubic-bezier(.2, .8, .25, 1); }
+    @keyframes movement-pop { 0% { opacity: .45; transform: scale(.82); } 70% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
+    /* /\ Briefly highlight a changed quote and its estimate, then leave the direction tag visible. */
+    .quote-up { animation: price-rise 1.2s ease-out; }
+    .quote-down { animation: price-fall 1.2s ease-out; }
+    @keyframes price-rise { 0% { background-color: #e4f2e6; } 100% { background-color: transparent; } }
+    @keyframes price-fall { 0% { background-color: #f8e9e5; } 100% { background-color: transparent; } }
+    /* /\ Let the quote gently travel in the same direction as its arrow when its value changes. */
+    .quote-value.quote-up { animation: quote-rises 850ms ease-out; }
+    .quote-value.quote-down { animation: quote-falls 850ms ease-out; }
+    @keyframes quote-rises { from { opacity: .55; transform: translateY(8px); background-color: #e4f2e6; } to { opacity: 1; transform: translateY(0); background-color: transparent; } }
+    @keyframes quote-falls { from { opacity: .55; transform: translateY(-8px); background-color: #f8e9e5; } to { opacity: 1; transform: translateY(0); background-color: transparent; } }
+    @media (prefers-reduced-motion: reduce) {
+      .quote-up, .quote-down, .quote-value.quote-up, .quote-value.quote-down, .movement-new { animation: none; }
+    }
+    /* /\ Keep the fee visible as a compact badge between the quote and its timestamp. */
+    .fee-label { display: inline-block; margin: 0 0 4px; padding: 1px 6px; border: 1px solid #eadfca; border-radius: 999px; background: #fbf6eb; color: #826324; font-size: 10px; font-weight: 650; }
     .fee-unknown { border-color: #e7e8e3; background: #f5f6f3; color: #777f72; }
-    .quote-meta { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; }
-    .estimate-cell { min-width: 140px; font-weight: 750; font-variant-numeric: tabular-nums; }
-    #buy-prices .estimate-cell { color: #456b58; }
-    #sell-prices .estimate-cell { color: #75613a; }
-    .best { background: #edf6ef; }
-    .best .estimate-cell { color: #236142; }
-    .worst { background: #fff5f2; }
-    .worst .estimate-cell { color: #9d4b3a; }
+    /* /\ Put the two decision details on one compact line directly below the provider quote. */
+    .quote-context { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 3px 6px; }
+    .quote-context .fee-label { margin: 0; }
+    .quote-meta { display: block; color: var(--muted); line-height: 1.4; }
+    /* /\ Make the source quote time easy to find; keep our own fetch time quieter. */
+    .quote-time { color: #515d50; font-size: 11px; font-weight: 600; }
+    .fetch-time { margin-top: 1px; color: #858b82; font-size: 9px; }
+    /* /\ A softly shaded final column makes the actual pay/receive amount easy to spot. */
+    .estimate-cell { min-width: 0; border-left: 2px solid #dce5da; background: #f5f8f3; color: #244b35; font-weight: 750; font-variant-numeric: tabular-nums; }
+    /* /\ Give the fee-adjusted amount a clear size step above the source quote. */
+    .estimate-value { display: block; font-size: 19px; line-height: 1.2; letter-spacing: -.025em; }
+    .estimate-unavailable { display: block; color: var(--muted); font-size: 11px; font-weight: 550; line-height: 1.35; }
+    /* /\ Keep prices neutral; the label tells you what the comparison means. */
+    .estimate-cell { color: var(--ink); }
+    /* /\ Use quiet row tints and one slim marker so the table stays easy to scan. */
+    .best { background: #f7faf7; }
+    .worst { background: #fcfaf5; }
+    .best .provider-cell { box-shadow: inset 3px 0 #6d9076; }
+    .worst .provider-cell { box-shadow: inset 3px 0 #b69a60; }
+    /* /\ Pair a short status badge with plain text explaining the ranking. */
+    .rank-note { display: block; width: fit-content; margin: 7px 0 0 auto; padding: 2px 6px; border: 1px solid; border-radius: 4px; font-size: 9px; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+    .rank-best { border-color: #d7e4d9; background: #f1f6f1; color: #42664b; }
+    .rank-worst { border-color: #e9dfc9; background: #faf6ed; color: #796337; }
+    .rank-context { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 500; }
+    /* /\ Put the two customer decisions up front; the tables below explain how each estimate is built. */
+    .decision-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0 0 20px; }
+    .decision-card { min-width: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    .decision-label { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+    .decision-provider { margin: 0 0 3px; font-size: 14px; font-weight: 700; }
+    .decision-amount { margin: 0; font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+    .decision-detail { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
     .pending { color: #92968e; }
     .stale { color: #9a6518; }
     @media (max-width: 900px) {
       main { width: min(100% - 32px, 680px); padding-top: 32px; }
       .tables { grid-template-columns: 1fr; }
+      .decision-summary { grid-template-columns: 1fr; gap: 10px; }
     }
     @media (max-width: 560px) {
       main { width: calc(100% - 24px); padding: 24px 0 40px; }
@@ -78,7 +138,8 @@
       .size-control { width: 100%; justify-content: space-between; }
       section { border-radius: 12px; }
       .section-heading { padding: 16px; }
-      th, td { padding: 12px; }
+      th, td { padding: 9px 10px; }
+      .estimate-value { font-size: 17px; }
     }
   </style>
 </head>
@@ -91,6 +152,22 @@
     <div class="toolbar">
       <label class="size-control" for="grams">Order size <span><input id="grams" type="number" min="0.001" max="10000" step="0.001" value="1"> grams</span></label>
       <p id="status" role="status" aria-live="polite">Loading prices…</p>
+    </div>
+
+    <!-- /\ Put the clearest buy and sell outcomes here before the detailed provider-by-provider rows. -->
+    <div class="decision-summary" role="group" aria-label="Best current fee-adjusted estimates">
+      <div class="decision-card">
+        <p class="decision-label" id="best-buy-heading">Lowest estimated buy cost</p>
+        <p class="decision-provider" id="best-buy-provider">Waiting for prices…</p>
+        <p class="decision-amount" id="best-buy-amount">—</p>
+        <p class="decision-detail" id="best-buy-detail">For the selected order size, including known fees.</p>
+      </div>
+      <div class="decision-card">
+        <p class="decision-label" id="best-sell-heading">Highest estimated sale proceeds</p>
+        <p class="decision-provider" id="best-sell-provider">Waiting for prices…</p>
+        <p class="decision-amount" id="best-sell-amount">—</p>
+        <p class="decision-detail" id="best-sell-detail">For the selected order size, after known fees.</p>
+      </div>
     </div>
 
     <section class="chart-section" aria-labelledby="chart-title">
@@ -109,11 +186,11 @@
     <div class="tables">
       <section>
         <div class="section-heading"><h2>Buying gold</h2><span class="direction">Lowest estimated cost first</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Price per gram</th><th>Estimated total</th></tr></thead><tbody id="buy-prices"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Provider quote / gram</th><th>Estimated amount you pay</th></tr></thead><tbody id="buy-prices"></tbody></table></div>
       </section>
       <section>
         <div class="section-heading"><h2>Selling gold</h2><span class="direction">Highest estimated proceeds first</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Price per gram</th><th>Estimated proceeds</th></tr></thead><tbody id="sell-prices"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Provider quote / gram</th><th>Estimated amount you receive</th></tr></thead><tbody id="sell-prices"></tbody></table></div>
       </section>
     </div>
   </main>

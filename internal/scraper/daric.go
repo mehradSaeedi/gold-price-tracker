@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -13,12 +14,31 @@ type daricResponse struct {
 }
 
 type daricTimeResponse struct {
-	Name      string    `json:"name"`
-	Timestamp time.Time `json:"lastGlobalPriceUpdated"`
+	Name string `json:"name"`
+	// /\ Keep this as text because Daric sometimes returns a zero date without a timezone.
+	Timestamp string `json:"lastGlobalPriceUpdated"`
 }
 
 type DaricScraper struct {
 	Client *http.Client
+}
+
+// /\ Treat Daric's timestamp as optional so a placeholder value cannot fail an otherwise good price quote.
+func parseDaricTimestamp(value string, tehran *time.Location) *time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	raw, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		raw, err = time.ParseInLocation("2006-01-02T15:04:05.999999999", value, tehran)
+	}
+	if err != nil || (raw.Year() == 1 && raw.Month() == time.January && raw.Day() == 1 && raw.Hour() == 0 && raw.Minute() == 0 && raw.Second() == 0 && raw.Nanosecond() == 0) {
+		return nil
+	}
+	// /\ Daric's Z-stamped values match the Tehran wall clock, so keep that displayed clock reading.
+	localTimestamp := time.Date(raw.Year(), raw.Month(), raw.Day(), raw.Hour(), raw.Minute(), raw.Second(), raw.Nanosecond(), tehran)
+	return &localTimestamp
 }
 
 func (s DaricScraper) GetPrice() (Price, error) {
@@ -55,14 +75,11 @@ func (s DaricScraper) GetPrice() (Price, error) {
 		return Price{}, fmt.Errorf("load Tehran timezone: %w", err)
 	}
 	for _, timestamps := range timeData {
-		if timestamps.Name == "GOLD18" && !timestamps.Timestamp.IsZero() {
-			// /\ Daric's Z-stamped value matches the Tehran wall clock; keep its clock reading in Tehran time.
-			raw := timestamps.Timestamp
-			localTimestamp := time.Date(
-				raw.Year(), raw.Month(), raw.Day(), raw.Hour(), raw.Minute(), raw.Second(), raw.Nanosecond(), tehran,
-			)
-			timestamp = &localTimestamp
-			break
+		if timestamps.Name == "GOLD18" {
+			timestamp = parseDaricTimestamp(timestamps.Timestamp, tehran)
+			if timestamp != nil {
+				break
+			}
 		}
 	}
 

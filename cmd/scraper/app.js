@@ -1,18 +1,39 @@
     const numberFormat = new Intl.NumberFormat();
+    // /\ These links take users to each provider's trading site or official entry point.
+    const providerTradeLinks = {
+      "Milli": "https://milli.gold/app/",
+      "WallGold": "https://wallgold.ir/app/buy",
+      "Talano": "https://talano.ir/",
+      "Goldika": "https://goldika.ir/",
+      "Talasea": "https://talasea.ir/",
+      "Taline": "https://taline.ir/app",
+      "MelliGold": "https://melligold.com/",
+      "Hamrahgold": "https://hamrahgold.com/",
+      "TapsiGold": "https://tapsi.gold/",
+      "Invi": "https://invi.ir/",
+      "Snapp Sarmayeh": "https://app.snappsarmayeh.ir/",
+      "Digi Gold": "https://dg.gold/",
+      "Zarpin": "https://zarpin.com/",
+      "Daric": "https://daric.gold/",
+      "Zarafza": "https://zarafza.com/",
+      "Zarpay": "https://zarpay24.com/trade-gold",
+    };
     // /\ TradingView's chart asks this adapter for its supported resolutions and stored bars.
     const supportedResolutions = ["1", "5", "15", "60", "1D"];
     // /\ Show time-axis labels using the Persian calendar while keeping time ticks in UTC as TradingView expects.
-    const persianAxisFormats = {
-      Year: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", timeZone: "UTC" }),
-      Month: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { month: "short", timeZone: "UTC" }),
-      DayOfMonth: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", timeZone: "UTC" }),
-      Date: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }),
-      Time: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }),
-      TimeWithSeconds: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: "UTC" }),
-    };
+    // const persianAxisFormats = {
+    //   Year: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", timeZone: "UTC" }),
+    //   Month: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { month: "short", timeZone: "UTC" }),
+    //   DayOfMonth: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", timeZone: "UTC" }),
+    //   Date: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }),
+    //   Time: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }),
+    //   TimeWithSeconds: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: "UTC" }),
+    // };
     // /\ TradingView requests an exact history count as well as a time range; cap each request to the API's 2,000-bar limit.
     const maxHistoryBarsPerRequest = 2000;
     const subscriptions = new Map();
+    // /\ Remember the latest direction per provider and side so the last move stays visible between refreshes.
+    const quoteMovements = new Map();
     let widget = null;
     let widgetReady = false;
     let displayedSymbol = "";
@@ -258,12 +279,12 @@
         locale: "en",
         timezone: "Asia/Tehran",
         // /\ Convert Gregorian time-axis dates to Persian-calendar labels without changing the candle timestamps.
-        custom_formatters: {
-          tickMarkFormatter(date, tickMarkType) {
-            const formatter = persianAxisFormats[tickMarkType] || persianAxisFormats.Date;
-            return formatter.format(date);
-          },
-        },
+        // custom_formatters: {
+        //   tickMarkFormatter(date, tickMarkType) {
+        //     const formatter = persianAxisFormats[tickMarkType] || persianAxisFormats.Date;
+        //     return formatter.format(date);
+        //   },
+        // },
         autosize: true,
         theme: "light",
         // / Show the drawing toolbar in fullscreen, and leave the rest of the library features at their defaults.
@@ -338,6 +359,34 @@
         : base * (1 - fee.rate) - fee.fixedToman;
     }
 
+    // /\ Turn the first fee-known quote in the already sorted list into the simple customer-facing answer.
+    function renderDecisionSummary(field, ranked, feeField, grams) {
+      const side = field === "buy" ? "buy" : "sell";
+      const heading = document.getElementById(`best-${side}-heading`);
+      const provider = document.getElementById(`best-${side}-provider`);
+      const amount = document.getElementById(`best-${side}-amount`);
+      const detail = document.getElementById(`best-${side}-detail`);
+      if (ranked.length === 0) {
+        heading.textContent = "No comparable estimate yet";
+        provider.textContent = "Waiting for a current quote with known fees";
+        amount.textContent = "—";
+        detail.textContent = "Quotes with unknown fees are not ranked.";
+        return;
+      }
+
+      const winner = ranked[0];
+      const winnerAmount = Math.round(effective(winner, field, feeField, grams));
+      const tied = ranked.filter((price) => Math.round(effective(price, field, feeField, grams)) === winnerAmount);
+      heading.textContent = ranked.length === 1
+        ? `Only comparable ${side} estimate`
+        : tied.length > 1 ? "Tied estimate" : field === "buy" ? "Lowest estimated buy cost" : "Highest estimated sale proceeds";
+      provider.textContent = tied.length > 1
+        ? `${tied.slice(0, 2).map((price) => price.site).join(" and ")}${tied.length > 2 ? ` + ${tied.length - 2} more` : ""}`
+        : winner.site;
+      amount.textContent = `${numberFormat.format(winnerAmount)} toman`;
+      detail.textContent = `For ${numberFormat.format(grams)} g, including known fees.`;
+    }
+
     function renderRows(target, prices, field, feeField, grams) {
       const usable = prices.filter((price) => price.available && !price.stale && price[field] > 0);
       const ranked = usable.filter((price) => feeKnown(price, feeField));
@@ -346,18 +395,23 @@
       ranked.sort((a, b) => field === "buy"
         ? effective(a, field, feeField, grams) - effective(b, field, feeField, grams)
         : effective(b, field, feeField, grams) - effective(a, field, feeField, grams));
+      renderDecisionSummary(field, ranked, feeField, grams);
       const body = document.getElementById(target);
       const totals = ranked.map((price) => effective(price, field, feeField, grams));
       const best = field === "buy" ? Math.min(...totals) : Math.max(...totals);
       const worst = field === "buy" ? Math.max(...totals) : Math.min(...totals);
+      // /\ Only label a winner and a laggard when there is an actual price difference to distinguish.
+      const hasRankSpread = ranked.length > 1 && best !== worst;
       body.replaceChildren(...[...ranked, ...unranked, ...pending].map((price) => {
         const row = document.createElement("tr");
         if (!price.available || price.stale || price[field] <= 0) row.classList.add("pending");
         const total = effective(price, field, feeField, grams);
-        if (ranked.length > 1 && feeKnown(price, feeField) && total === best) row.classList.add("best");
-        if (ranked.length > 1 && feeKnown(price, feeField) && total === worst) row.classList.add("worst");
+        const isRankedPrice = ranked.includes(price);
+        const isBest = hasRankSpread && isRankedPrice && total === best;
+        const isWorst = hasRankSpread && isRankedPrice && total === worst;
+        if (isBest) row.classList.add("best");
+        if (isWorst) row.classList.add("worst");
         if (price.stale) row.classList.add("stale");
-        const site = `${price.site}\n${price.source || "Source unknown"}${price.stale ? " · STALE" : ""}`;
         const quoteDate = price.timestamp ? new Date(price.timestamp) : null;
         const quoteTime = quoteDate && !Number.isNaN(quoteDate.getTime())
           ? `Source quote: ${quoteDate.toLocaleTimeString(undefined, { timeZone: "Asia/Tehran" })}`
@@ -365,18 +419,28 @@
         const refreshed = price.fetchedAt
           ? `Fetched: ${new Date(price.fetchedAt).toLocaleTimeString(undefined, { timeZone: "Asia/Tehran" })}`
           : "Not fetched yet";
+        const site = `${price.site}\n${price.source || "Source unknown"}${price.stale ? " · STALE" : ""}`;
         const unit = price.available && price[field] > 0
           ? `${numberFormat.format(price[field])} toman\n${formatFee(price[feeField], price.feeIncludedInPrice)}\n${quoteTime}\n${refreshed}`
           : "Waiting for price…";
         const estimate = price.available && !price.stale && price[field] > 0
           ? (feeKnown(price, feeField) ? `${numberFormat.format(Math.round(total))} toman` : "Not ranked: fee unknown")
           : "Unavailable";
+        const movement = quoteMovements.get(`${price.site}:${field}`);
+        const movementIsFresh = movement && Date.now() - movement.changedAt < 1400;
         for (const [index, cellValue] of [site, unit, estimate].entries()) {
           const cell = document.createElement("td");
           cell.className = ["provider-cell", "quote-cell", "estimate-cell"][index];
           if (index === 0) {
             const [provider, source] = cellValue.split("\n");
-            const name = document.createElement("span");
+            const name = document.createElement(providerTradeLinks[provider] ? "a" : "span");
+            if (providerTradeLinks[provider]) {
+              name.href = providerTradeLinks[provider];
+              name.target = "_blank";
+              name.rel = "noopener noreferrer";
+              name.title = `Open ${provider} trading page in a new tab`;
+            }
+            name.className = "provider-link";
             name.textContent = provider;
             cell.append(name);
             const sourceLabel = document.createElement("span");
@@ -386,18 +450,51 @@
           } else if (index === 1 && price.available && price[field] > 0) {
             const [amount, fee, quote, fetched] = cellValue.split("\n");
             const value = document.createElement("span");
-            value.className = "quote-value";
+            value.className = `quote-value${movementIsFresh ? ` quote-${movement.direction}` : ""}`;
             value.textContent = amount;
             cell.append(value);
+            if (movement && movement.direction) {
+              const direction = document.createElement("span");
+              direction.className = `price-direction direction-${movement.direction}${movementIsFresh ? " movement-new" : ""}`;
+              direction.textContent = movement.direction === "up" ? "↑ Up" : "↓ Down";
+              direction.title = "Direction of the most recent source-price change";
+              cell.append(direction);
+            }
             const feeLabel = document.createElement("span");
             feeLabel.className = `fee-label${price[feeField] == null && !price.feeIncludedInPrice ? " fee-unknown" : ""}`;
             feeLabel.textContent = fee.replace(/^Fee: /, "Fee · ");
-            cell.append(feeLabel);
-            for (const detail of [quote, fetched]) {
-              const meta = document.createElement("span");
-              meta.className = "quote-meta";
-              meta.textContent = detail;
-              cell.append(meta);
+            // /\ Keep fee and source quote time together so both can be read without scanning separate lines.
+            const quoteContext = document.createElement("div");
+            quoteContext.className = "quote-context";
+            quoteContext.append(feeLabel);
+            const quoteMeta = document.createElement("span");
+            quoteMeta.className = "quote-meta quote-time";
+            quoteMeta.textContent = quote;
+            quoteContext.append(quoteMeta);
+            cell.append(quoteContext);
+            const fetchedMeta = document.createElement("span");
+            fetchedMeta.className = "quote-meta fetch-time";
+            fetchedMeta.textContent = fetched;
+            cell.append(fetchedMeta);
+          } else if (index === 2) {
+            const amount = document.createElement("span");
+            amount.className = price.available && !price.stale && price[field] > 0 && feeKnown(price, feeField)
+              ? "estimate-value"
+              : "estimate-unavailable";
+            amount.textContent = cellValue;
+            cell.append(amount);
+            if (movementIsFresh) cell.classList.add(`quote-${movement.direction}`);
+            if (isBest || isWorst) {
+              const rankNote = document.createElement("span");
+              rankNote.className = `rank-note ${isBest ? "rank-best" : "rank-worst"}`;
+              rankNote.textContent = isBest ? "Best" : "Least favorable";
+              const rankContext = document.createElement("span");
+              rankContext.className = "rank-context";
+              rankContext.textContent = isBest
+                ? field === "buy" ? "Lowest cost" : "Highest proceeds"
+                : field === "buy" ? "Highest cost" : "Lowest proceeds";
+              cell.append(rankNote);
+              cell.append(rankContext);
             }
           } else {
             cell.textContent = cellValue;
@@ -414,6 +511,23 @@
         const response = await fetch("/api/prices");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const prices = await response.json();
+        // /\ Compare each fresh quote with its previous reading and remember its latest direction.
+        for (const price of prices) {
+          for (const side of ["buy", "sell"]) {
+            if (!price.available || price[side] <= 0) continue;
+            const key = `${price.site}:${side}`;
+            const previous = quoteMovements.get(key);
+            if (!previous) {
+              quoteMovements.set(key, { value: price[side], direction: "", changedAt: 0 });
+            } else if (price[side] !== previous.value) {
+              quoteMovements.set(key, {
+                value: price[side],
+                direction: price[side] > previous.value ? "up" : "down",
+                changedAt: Date.now(),
+              });
+            }
+          }
+        }
         updateChartSites(prices);
         const grams = Math.min(10000, Math.max(0.001, Number(document.getElementById("grams").value) || 1));
         renderRows("buy-prices", prices, "buy", "buyFee", grams);
