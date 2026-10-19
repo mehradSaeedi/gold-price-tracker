@@ -182,7 +182,7 @@ func main() {
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
-		"TapsiGold", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric", "Zarafza", "Zarpay", "Zarpin",
+		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric", "Zarafza", "Zarpay", "Zarpin",
 	})
 
 	fetchers := []struct {
@@ -204,6 +204,7 @@ func main() {
 		{"Zarafza", "Zarafza public API", scraper.ZarafzaScraper{Client: client}},
 		{"Zarpay", "Zarpay public API", scraper.ZarpayScraper{Client: client}},
 		{"Zarpin", "Zarpin public API", scraper.ZarpinScraper{Client: client}},
+		{"Gerami", "Gerami public API", scraper.GeramiScraper{Client: client}},
 		// /\ Keep Zarscope only as a fallback for providers without a direct scraper.
 		// {"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
 		{"Digi Gold", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
@@ -249,6 +250,26 @@ func main() {
 			}()
 			if err := hamrah.Start(prices); err != nil {
 				log.Printf("HamrahGold connection ended: %v", err)
+			}
+			close(prices)
+			time.Sleep(5 * time.Second)
+		}
+	}()
+
+	// /\\ Keep Myshemsh's Socket.IO subscription alive and save each accepted gold quote.
+	myshemsh := scraper.NewMyshemshScraper()
+	go func() {
+		for {
+			prices := make(chan scraper.Price, 10)
+			go func() {
+				for price := range prices {
+					if err := recordPrice(price, store, database); err != nil {
+						log.Printf("Myshemsh quote update failed: %v", err)
+					}
+				}
+			}()
+			if err := myshemsh.Start(prices); err != nil {
+				log.Printf("Myshemsh connection ended: %v", err)
 			}
 			close(prices)
 			time.Sleep(5 * time.Second)
