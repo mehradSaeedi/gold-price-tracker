@@ -1,4 +1,6 @@
-    const numberFormat = new Intl.NumberFormat();
+    // /\ Use Persian digits for every price while comparing the original numeric values.
+    const numberFormat = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 0 });
+    const decimalNumberFormat = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 2 });
     // /\ These links take users to each provider's trading site or official entry point.
     const providerTradeLinks = {
       "Milli": "https://milli.gold/app/",
@@ -18,8 +20,63 @@
       "Zarafza": "https://zarafza.com/",
       "Zarpay": "https://zarpay24.com/trade-gold",
     };
+    // /\ Show familiar Persian provider names while retaining the API's original identifiers internally.
+    const providerDisplayNames = {
+      Milli: "میلی",
+      WallGold: "وال‌گلد",
+      Talano: "طلانو",
+      Goldika: "گلدیکا",
+      Talasea: "طلاسی",
+      Taline: "طلاین",
+      MelliGold: "ملی‌گلد",
+      Hamrahgold: "همراه‌گلد",
+      TapsiGold: "تپسی‌گلد",
+      Invi: "اینوی",
+      "Snapp Sarmayeh": "اسنپ سرمایه",
+      "Digi Gold": "دیجی‌گلد",
+      Zarpin: "زرپین",
+      Daric: "داریک",
+      Zarafza: "زرافزا",
+      Zarpay: "زرپی",
+    };
+    // /\\ Translate the collector's source labels so quote provenance stays understandable in the Persian UI.
+    const quoteSourceDisplayNames = {
+      "Milli public API": "رابط عمومی میلی",
+      "WallGold public API": "رابط عمومی وال‌گلد",
+      "Talano public API": "رابط قیمت طلانو",
+      "Goldika public API": "رابط عمومی گلدیکا",
+      "Talasea public API": "رابط عمومی طلاسی",
+      "Taline website": "وب‌سایت طلاین",
+      "MelliGold public API": "رابط عمومی ملی‌گلد",
+      "MelliGold API or Zarscope fallback": "رابط ملی‌گلد یا زرسکوپ",
+      "TapsiGold public API": "رابط عمومی تپسی‌گلد",
+      "Invi public API": "رابط عمومی اینوی",
+      "Snapp Sarmayeh public API": "رابط عمومی اسنپ سرمایه",
+      "Digi Gold public API": "رابط عمومی دیجی‌گلد",
+      "Zarpin public API": "رابط عمومی زرپین",
+      "Daric public API": "رابط عمومی داریک",
+      "Zarafza public API": "رابط عمومی زرافزا",
+      "Zarpay public API": "رابط عمومی زرپی",
+      "Zarscope public feed": "داده‌های قیمت زرسکوپ",
+      "HamrahGold WebSocket": "ارتباط زنده همراه‌گلد",
+    };
     // /\ TradingView's chart asks this adapter for its supported resolutions and stored bars.
     const supportedResolutions = ["1", "5", "15", "60", "1D"];
+    // /\\ Make the chart pane match the surrounding dashboard, including when TradingView restores old preferences.
+    const darkChartOverrides = {
+      "paneProperties.background": "#181a1f",
+      "paneProperties.backgroundType": "solid",
+      "paneProperties.vertGridProperties.color": "#292c32",
+      "paneProperties.horzGridProperties.color": "#292c32",
+      "scalesProperties.textColor": "#a8abb2",
+      "scalesProperties.lineColor": "#3a3d44",
+      "mainSeriesProperties.candleStyle.upColor": "#47c78b",
+      "mainSeriesProperties.candleStyle.downColor": "#ee777d",
+      "mainSeriesProperties.candleStyle.borderUpColor": "#47c78b",
+      "mainSeriesProperties.candleStyle.borderDownColor": "#ee777d",
+      "mainSeriesProperties.candleStyle.wickUpColor": "#47c78b",
+      "mainSeriesProperties.candleStyle.wickDownColor": "#ee777d",
+    };
     // /\ Show time-axis labels using the Persian calendar while keeping time ticks in UTC as TradingView expects.
     // const persianAxisFormats = {
     //   Year: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", timeZone: "UTC" }),
@@ -34,7 +91,10 @@
     const subscriptions = new Map();
     // /\ Remember the latest direction per provider and side so the last move stays visible between refreshes.
     const quoteMovements = new Map();
+    // /\ Start with the best effective buy estimate; each sortable column can choose its own natural direction.
+    const sortState = { key: "buyPrice", direction: "asc" };
     let widget = null;
+    let chartInitialized = false;
     let widgetReady = false;
     let displayedSymbol = "";
     const savedChartsKey = "gold-price-tracker:tradingview-charts:v1";
@@ -56,20 +116,38 @@
       if (resolution === "15") return "15m";
       if (resolution === "60") return "1h";
       if (resolution === "1D" || resolution === "D") return "1d";
-      throw new Error(`Unsupported chart interval: ${resolution}`);
+      throw new Error("بازه زمانی نمودار پشتیبانی نمی‌شود.");
+    }
+
+    // /\ Show the chart's API interval with a Persian label in the page status.
+    function displayInterval(interval) {
+      return ({ "1m": "۱ دقیقه", "5m": "۵ دقیقه", "15m": "۱۵ دقیقه", "1h": "۱ ساعت", "1d": "۱ روز" })[interval] || interval;
     }
 
     // /\ Map the selected controls to a distinct symbol so changing site or fee side reloads the chart.
     function selectedSymbol() {
       const { site, side, grams } = chartSelection();
-      return site ? `${site} · ${side} · ${grams}g` : "Gold prices";
+      // /\\ TradingView gets a plain ASCII key; Persian names stay in the chart's visible title.
+      const siteKey = site.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+      return site ? `GPT_${siteKey}_${side.toUpperCase()}_${grams}` : "";
     }
 
     // /\ Saved chart names carry the selected series, so reopening a layout restores its site and fee side too.
     function selectionForSymbol(symbolName) {
-      const match = /^(.*) · (buy|sell) · ([\d.]+)g$/.exec(symbolName || "");
+      const internalMatch = /^GPT_(.+)_(BUY|SELL)_([0-9]+(?:\.[0-9]+)?)$/i.exec(symbolName || "");
+      if (internalMatch) {
+        const site = Object.keys(providerDisplayNames).find((name) =>
+          name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "") === internalMatch[1].toUpperCase(),
+        );
+        if (site) return { site, side: internalMatch[2].toLowerCase(), grams: Number(internalMatch[3]) };
+      }
+      const match = /^(.*) · (خرید|فروش|buy|sell) · ([0-9۰-۹٠-٩.٫٬,]+)(?: گرم|g)$/.exec(symbolName || "");
       if (!match) return chartSelection();
-      return { site: match[1], side: match[2], grams: Number(match[3]) };
+      const site = Object.keys(providerDisplayNames).find((name) => providerDisplayName(name) === match[1]) || match[1];
+      const grams = match[3].replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+        .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+        .replace(/[٫]/g, ".").replace(/[٬,]/g, "");
+      return { site, side: match[2] === "خرید" || match[2] === "buy" ? "buy" : "sell", grams: Number(grams) };
     }
 
     // /\ Keep TradingView's saved chart layouts in this browser; no chart drawings are sent to PostgreSQL.
@@ -93,7 +171,7 @@
       },
       async getChartContent(chartId) {
         const chart = JSON.parse(localStorage.getItem(savedChartsKey) || "[]").find((item) => item.id === chartId);
-        if (!chart) throw new Error("Saved chart was not found in this browser");
+        if (!chart) throw new Error("نمودار ذخیره‌شده در این مرورگر پیدا نشد.");
         return chart.content;
       },
       async getAllStudyTemplates() {
@@ -112,7 +190,7 @@
       },
       async getStudyTemplateContent(template) {
         const saved = JSON.parse(localStorage.getItem(savedStudiesKey) || "[]").find((item) => item.name === template.name);
-        if (!saved) throw new Error("Saved indicator template was not found in this browser");
+        if (!saved) throw new Error("الگوی ذخیره‌شده پیدا نشد.");
         return saved.content;
       },
     };
@@ -129,8 +207,9 @@
       if (Number.isFinite(from)) params.set("from", new Date(from * 1000).toISOString());
       if (Number.isFinite(to)) params.set("to", new Date(to * 1000).toISOString());
       const response = await fetch(`/api/candles?${params}`);
-      if (!response.ok) throw new Error(`Candle API returned HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`خطای سرور ${numberFormat.format(response.status)} هنگام دریافت کندل‌ها`);
       const candles = await response.json();
+      if (!Array.isArray(candles)) throw new Error("پاسخ API کندل‌ها قالب معتبری ندارد.");
       const bars = candles.map((candle) => ({
         time: Date.parse(candle.timestamp),
         open: candle[selection.side].open,
@@ -158,20 +237,24 @@
       },
       resolveSymbol(symbolName, onResolve) {
         const { site, side, grams } = selectionForSymbol(symbolName);
+        if (!site) {
+          document.getElementById("chart-status").textContent = "برای نمایش نمودار، ابتدا دریافت قیمت یک ارائه‌دهنده را منتظر بمانید.";
+          return;
+        }
         const siteSelect = document.getElementById("chart-site");
         if ([...siteSelect.options].some((option) => option.value === site)) siteSelect.value = site;
         document.getElementById("chart-side").value = side;
         document.getElementById("grams").value = String(grams);
         setTimeout(() => onResolve({
-          name: site ? `${site} ${side}` : "Gold prices",
-          full_name: site ? `${site} ${side} price per gram` : "Gold prices",
+          name: site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"}` : "قیمت طلا",
+          full_name: site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"} · ${decimalNumberFormat.format(grams)} گرم` : "قیمت طلا",
           ticker: symbolName,
-          description: "18-karat gold price per gram in toman",
+          description: "قیمت هر گرم طلای ۱۸ عیار به تومان",
           type: "commodity",
           session: "24x7",
           timezone: "Asia/Tehran",
-          exchange: "Gold providers",
-          listed_exchange: "Gold providers",
+          exchange: "GPT",
+          listed_exchange: "GPT",
           format: "price",
           minmov: 1,
           pricescale: 1,
@@ -233,16 +316,16 @@
           }
           const feeField = `${selection.side}FeesKnown`;
           const notices = [];
-          if (loadedRecentFallback) notices.push("showing latest stored candles outside the requested range");
-          if (candles.length && !candles.every((candle) => candle[feeField])) notices.push("some fees unknown; raw prices used for those readings");
+          if (loadedRecentFallback) notices.push("آخرین کندل‌های ذخیره‌شده خارج از بازه درخواستی نمایش داده می‌شوند");
+          if (candles.length && !candles.every((candle) => candle[feeField])) notices.push("برای برخی داده‌ها کارمزد نامشخص است و نرخ خام نمایش داده می‌شود");
           const noticeText = notices.length ? ` · ${notices.join(" · ")}` : "";
           document.getElementById("chart-status").textContent = bars.length
-            ? `${selection.site} · ${selection.side} · ${interval} · ${selection.grams}g order · ${bars.length} candles · Tehran time${noticeText}`
-            : `No stored candles found for ${selection.site} (${interval}).${noticeText}`;
+            ? `${displayProviderName(selection.site)} · ${selection.side === "buy" ? "خرید" : "فروش"} · ${displayInterval(interval)} · سفارش ${decimalNumberFormat.format(selection.grams)} گرم · ${numberFormat.format(bars.length)} کندل · به وقت تهران${noticeText}`
+            : `برای ${displayProviderName(selection.site)} در بازه ${displayInterval(interval)} کندلی ذخیره نشده است.${noticeText}`;
           onResult(bars, { noData: bars.length === 0 });
         } catch (error) {
-          document.getElementById("chart-status").textContent = `Could not load candles: ${error.message}`;
-          onError(error.message);
+          document.getElementById("chart-status").textContent = error.message || "دریافت کندل‌ها ناموفق بود.";
+          onError(error.message || "دریافت داده‌های نمودار ناموفق بود.");
         }
       },
       subscribeBars(_symbolInfo, resolution, onTick, listenerGuid) {
@@ -256,7 +339,7 @@
             const { bars } = await loadBars(selection, resolution, now - intervalSeconds * 3, now + intervalSeconds, 1);
             if (bars.length) onTick(bars[bars.length - 1]);
           } catch (error) {
-            document.getElementById("chart-status").textContent = `Live candle refresh failed: ${error.message}`;
+            document.getElementById("chart-status").textContent = "به‌روزرسانی زنده نمودار ناموفق بود.";
           }
         };
         const timer = setInterval(refresh, 30000);
@@ -270,13 +353,21 @@
 
     // /\ Start the hosted TradingView widget and let its own toolbar handle intervals and drawing tools.
     function initializeChart() {
+      if (chartInitialized) return;
+      if (!window.TradingView?.widget) {
+        document.getElementById("chart-status").textContent = "کتابخانه نمودار بارگذاری نشده است؛ نشانی فایل‌های نمودار را بررسی کنید.";
+        return;
+      }
+      const symbol = selectedSymbol();
+      if (!symbol) return;
+      chartInitialized = true;
       widget = new TradingView.widget({
         container: "candle-chart",
         library_path: "/charting_library/",
         datafeed,
-        symbol: "Gold prices",
-        interval: "1",
-        locale: "en",
+        symbol,
+        interval: "5",
+        locale: "fa",
         timezone: "Asia/Tehran",
         // /\ Convert Gregorian time-axis dates to Persian-calendar labels without changing the candle timestamps.
         // custom_formatters: {
@@ -286,7 +377,7 @@
         //   },
         // },
         autosize: true,
-        theme: "light",
+        theme: "dark",
         // / Show the drawing toolbar in fullscreen, and leave the rest of the library features at their defaults.
         enabled_features: ["side_toolbar_in_fullscreen_mode"],
         // / Hide unsupported search/compare controls and the default volume pane; our count is not traded volume.
@@ -302,12 +393,24 @@
           ],
         },
         save_load_adapter: saveLoadAdapter,
-        overrides: { "mainSeriesProperties.priceAxisProperties.autoScale": true },
-        loading_screen: { backgroundColor: "#ffffff", foregroundColor: "#245b42" },
+        overrides: { ...darkChartOverrides, "mainSeriesProperties.priceAxisProperties.autoScale": true },
+        loading_screen: { backgroundColor: "#181a1f", foregroundColor: "#d0a74e" },
       });
       widget.onChartReady(() => {
-        widgetReady = true;
-        syncChartSymbol();
+        // /\\ A saved TradingView preference can restore a light pane, so reapply the dashboard theme after loading.
+        widget.changeTheme("dark")
+          .then(() => {
+            widget.applyOverrides(darkChartOverrides);
+            return widget.activeChart().setResolution("5");
+          })
+          .catch(() => {
+            document.getElementById("chart-status").textContent = "تنظیم ظاهر تیره نمودار انجام نشد.";
+          })
+          .finally(() => {
+            widgetReady = true;
+            displayedSymbol = symbol;
+            syncChartSymbol();
+          });
       });
     }
 
@@ -315,7 +418,7 @@
     function syncChartSymbol() {
       if (!widgetReady) return;
       const symbol = selectedSymbol();
-      if (!chartSelection().site || symbol === displayedSymbol) return;
+      if (!chartSelection().site || !symbol || symbol === displayedSymbol) return;
       displayedSymbol = symbol;
       widget.activeChart().setSymbol(symbol, () => {});
     }
@@ -329,178 +432,320 @@
       select.replaceChildren(...sites.map((site) => {
         const option = document.createElement("option");
         option.value = site;
-        option.textContent = site;
+        option.textContent = displayProviderName(site);
         return option;
       }));
       select.disabled = false;
       if (sites.includes(previous)) select.value = previous;
-      syncChartSymbol();
+      else select.value = sites[0];
+      if (!chartInitialized) initializeChart();
+      else syncChartSymbol();
     }
 
-    function formatFee(fee, included) {
-      if (!fee) return "Fee: unknown";
-      const parts = [];
-      if (fee.rate) parts.push(`${numberFormat.format(fee.rate * 100)}%`);
-      if (fee.fixedToman) parts.push(`${numberFormat.format(fee.fixedToman)} toman`);
-      if (parts.length === 0) parts.push("0%");
-      return `Fee: ${parts.join(" + ")}${included ? " (included in price)" : ""}`;
+    // /\ Return the known fee object; a nil value must stay unknown instead of silently becoming zero.
+    function feeFor(price, side) {
+      return price[`${side}Fee`];
     }
 
-    function feeKnown(price, feeField) {
-      return price.feeIncludedInPrice || price[feeField] != null;
+    // /\ Included fees are already in the quote; otherwise the API's known fee object makes the estimate comparable.
+    function feeKnown(price, side) {
+      return price.feeIncludedInPrice || feeFor(price, side) != null;
     }
 
-    function effective(price, field, feeField, grams) {
-      const fee = price[feeField] || { rate: 0, fixedToman: 0 };
-      const base = price[field] * grams;
+    // /\ Preserve the project's existing buy-adds and sell-subtracts fee convention for whole orders.
+    function effectiveTotal(price, side, grams) {
+      const fee = feeFor(price, side) || { rate: 0, fixedToman: 0 };
+      const base = price[side] * grams;
       if (price.feeIncludedInPrice) return base;
-      return field === "buy"
+      return side === "buy"
         ? base * (1 + fee.rate) + fee.fixedToman
         : base * (1 - fee.rate) - fee.fixedToman;
     }
 
-    // /\ Turn the first fee-known quote in the already sorted list into the simple customer-facing answer.
-    function renderDecisionSummary(field, ranked, feeField, grams) {
-      const side = field === "buy" ? "buy" : "sell";
-      const heading = document.getElementById(`best-${side}-heading`);
-      const provider = document.getElementById(`best-${side}-provider`);
-      const amount = document.getElementById(`best-${side}-amount`);
-      const detail = document.getElementById(`best-${side}-detail`);
-      if (ranked.length === 0) {
-        heading.textContent = "No comparable estimate yet";
-        provider.textContent = "Waiting for a current quote with known fees";
-        amount.textContent = "—";
-        detail.textContent = "Quotes with unknown fees are not ranked.";
-        return;
+    // /\\ Rank only current providers whose fee information lets us make a fair total-cost comparison.
+    function renderDecisionSummary(prices, grams) {
+      for (const side of ["buy", "sell"]) {
+        const heading = document.getElementById(`best-${side}-heading`);
+        const provider = document.getElementById(`best-${side}-provider`);
+        const amount = document.getElementById(`best-${side}-amount`);
+        const detail = document.getElementById(`best-${side}-detail`);
+        const candidates = prices.filter((price) => price.available && !price.stale && price[side] > 0 && feeKnown(price, side));
+        candidates.sort((a, b) => side === "buy"
+          ? effectiveTotal(a, side, grams) - effectiveTotal(b, side, grams)
+          : effectiveTotal(b, side, grams) - effectiveTotal(a, side, grams));
+        if (!candidates.length) {
+          heading.textContent = side === "buy" ? "کمترین هزینه خرید" : "بیشترین دریافتی فروش";
+          provider.textContent = "در انتظار نرخ معتبر با کارمزد مشخص";
+          amount.textContent = "—";
+          detail.textContent = "نرخ‌های قدیمی یا کارمزدهای نامشخص رتبه‌بندی نمی‌شوند.";
+          continue;
+        }
+        const winner = candidates[0];
+        const winnerAmount = Math.round(effectiveTotal(winner, side, grams));
+        const tied = candidates.filter((price) => Math.round(effectiveTotal(price, side, grams)) === winnerAmount);
+        heading.textContent = tied.length > 1 ? "بهترین قیمت مشترک" : side === "buy" ? "کمترین هزینه خرید" : "بیشترین دریافتی فروش";
+        provider.textContent = tied.length > 1
+          ? tied.slice(0, 2).map((price) => displayProviderName(price.site)).join(" و ") + (tied.length > 2 ? ` و ${numberFormat.format(tied.length - 2)} پلتفرم دیگر` : "")
+          : displayProviderName(winner.site);
+        amount.textContent = formatToman(winnerAmount);
+        detail.textContent = `برای ${decimalNumberFormat.format(grams)} گرم، ${side === "buy" ? "با احتساب" : "پس از کسر"} کارمزد`;
       }
-
-      const winner = ranked[0];
-      const winnerAmount = Math.round(effective(winner, field, feeField, grams));
-      const tied = ranked.filter((price) => Math.round(effective(price, field, feeField, grams)) === winnerAmount);
-      heading.textContent = ranked.length === 1
-        ? `Only comparable ${side} estimate`
-        : tied.length > 1 ? "Tied estimate" : field === "buy" ? "Lowest estimated buy cost" : "Highest estimated sale proceeds";
-      provider.textContent = tied.length > 1
-        ? `${tied.slice(0, 2).map((price) => price.site).join(" and ")}${tied.length > 2 ? ` + ${tied.length - 2} more` : ""}`
-        : winner.site;
-      amount.textContent = `${numberFormat.format(winnerAmount)} toman`;
-      detail.textContent = `For ${numberFormat.format(grams)} g, including known fees.`;
     }
 
-    function renderRows(target, prices, field, feeField, grams) {
-      const usable = prices.filter((price) => price.available && !price.stale && price[field] > 0);
-      const ranked = usable.filter((price) => feeKnown(price, feeField));
-      const unranked = usable.filter((price) => !feeKnown(price, feeField));
-      const pending = prices.filter((price) => !price.available || price.stale || price[field] <= 0);
-      ranked.sort((a, b) => field === "buy"
-        ? effective(a, field, feeField, grams) - effective(b, field, feeField, grams)
-        : effective(b, field, feeField, grams) - effective(a, field, feeField, grams));
-      renderDecisionSummary(field, ranked, feeField, grams);
-      const body = document.getElementById(target);
-      const totals = ranked.map((price) => effective(price, field, feeField, grams));
-      const best = field === "buy" ? Math.min(...totals) : Math.max(...totals);
-      const worst = field === "buy" ? Math.max(...totals) : Math.min(...totals);
-      // /\ Only label a winner and a laggard when there is an actual price difference to distinguish.
-      const hasRankSpread = ranked.length > 1 && best !== worst;
-      body.replaceChildren(...[...ranked, ...unranked, ...pending].map((price) => {
+    // /\ Show the amount charged by the known percentage and fixed fee without applying it to the quote again.
+    function actualFeeAmount(price, side, grams) {
+      const fee = feeFor(price, side);
+      if (!fee || price.feeIncludedInPrice) return null;
+      return price[side] * grams * fee.rate + fee.fixedToman;
+    }
+
+    // /\ Keep advertised per-gram prices separate from the fee-adjusted amount the customer pays or receives.
+    function effectivePerGram(price, side, grams) {
+      if (!feeKnown(price, side) || !price.available || price[side] <= 0) return null;
+      return effectiveTotal(price, side, grams) / grams;
+    }
+
+    // /\ Calculate the buy-versus-sell spread on the same per-gram, fee-adjusted basis for this order size.
+    function effectiveSpread(price, grams) {
+      const buy = effectivePerGram(price, "buy", grams);
+      const sell = effectivePerGram(price, "sell", grams);
+      return buy == null || sell == null ? null : buy - sell;
+    }
+
+    // /\ Format toman amounts consistently; the caller always sorts the unformatted numeric value.
+    function formatToman(value, decimals = 0) {
+      const formatted = decimals ? decimalNumberFormat.format(value) : numberFormat.format(Math.round(value));
+      return `${formatted} تومان`;
+    }
+
+    // /\ Map the site's stable API key to the Persian name shown to dashboard users.
+    function displayProviderName(site) {
+      return providerDisplayNames[site] || site || "نامشخص";
+    }
+
+    // /\\ Show a Persian source label while preserving unfamiliar source names as a fallback.
+    function displayQuoteSource(source) {
+      return quoteSourceDisplayNames[source] || source || "نامشخص";
+    }
+
+    // /\ Show each known fee's real charge for the selected order and explain its source components on hover/focus.
+    function feeBadge(price, side, grams) {
+      const fee = feeFor(price, side);
+      const badge = document.createElement("span");
+      badge.className = "fee-badge";
+      badge.tabIndex = 0;
+      if (price.feeIncludedInPrice) {
+        badge.textContent = "در نرخ منظور شده";
+        badge.title = "این نرخ از قبل شامل کارمزد است؛ کارمزد دوباره اضافه نشده است.";
+      } else if (!fee) {
+        badge.classList.add("fee-unknown");
+        badge.textContent = "نامشخص";
+        badge.title = "مقدار کارمزد از منبع در دسترس نیست.";
+      } else {
+        badge.textContent = formatToman(actualFeeAmount(price, side, grams));
+        const parts = [];
+        if (fee.rate) parts.push(`${decimalNumberFormat.format(fee.rate * 100)}٪`);
+        if (fee.fixedToman) parts.push(formatToman(fee.fixedToman));
+        badge.title = `اجزای کارمزد: ${parts.length ? parts.join(" + ") : "بدون کارمزد"} · برای ${decimalNumberFormat.format(grams)} گرم`;
+      }
+      badge.setAttribute("aria-label", `${badge.textContent}. ${badge.title}`);
+      return badge;
+    }
+
+    // /\\ Keep the fee rate and any fixed charge visible under the amount badge, including fees already built into the quote.
+    function feeRateDetail(price, side) {
+      const fee = feeFor(price, side);
+      if (!fee) return "جزئیات تعرفه نامشخص";
+      const parts = [];
+      if (fee.rate) parts.push(`${decimalNumberFormat.format(fee.rate * 100)}٪`);
+      if (fee.fixedToman) parts.push(`${formatToman(fee.fixedToman)} ثابت`);
+      if (!parts.length) return price.feeIncludedInPrice ? "کارمزد در نرخ اعلامی منظور شده" : "بدون کارمزد";
+      return `تعرفه ${parts.join(" + ")}${price.feeIncludedInPrice ? " · در نرخ منظور شده" : ""}`;
+    }
+
+    // /\ Keep unavailable or unknown values after numeric values in either sort direction.
+    function compareNumeric(a, b, direction) {
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      return direction === "asc" ? a - b : b - a;
+    }
+
+    // /\ Pick the numeric value for each sortable column, including the current order size's fee impact.
+    function sortValue(price, key, grams) {
+      switch (key) {
+        case "buyPrice": return price.available && !price.stale && feeKnown(price, "buy") ? effectiveTotal(price, "buy", grams) : null;
+        case "buyFee": return actualFeeAmount(price, "buy", grams);
+        case "sellPrice": return price.available && !price.stale && feeKnown(price, "sell") ? effectiveTotal(price, "sell", grams) : null;
+        case "sellFee": return actualFeeAmount(price, "sell", grams);
+        case "spread": return price.available && !price.stale ? effectiveSpread(price, grams) : null;
+        default: return null;
+      }
+    }
+
+    // /\ Update visible chevrons and screen-reader sort state along with the active numeric sort.
+    function updateSortIndicators() {
+      for (const button of document.querySelectorAll("button[data-sort-key]")) {
+        const active = button.dataset.sortKey === sortState.key;
+        button.setAttribute("aria-pressed", String(active));
+        const heading = button.closest("th");
+        heading.setAttribute("aria-sort", active ? (sortState.direction === "asc" ? "ascending" : "descending") : "none");
+        const icon = button.querySelector("svg");
+        icon.style.transform = sortState.direction === "asc" ? "rotate(0deg)" : "rotate(180deg)";
+      }
+    }
+
+    // /\ Give each new column a useful starting direction, then reverse it on repeated clicks.
+    function chooseSort(key) {
+      if (sortState.key === key) {
+        sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
+      } else {
+        sortState.key = key;
+        sortState.direction = key === "sellPrice" ? "desc" : "asc";
+      }
+      updateSortIndicators();
+      refreshPrices();
+    }
+
+    // /\ Build one row with quoted prices, separate fee estimates, fee-adjusted prices, and provider actions.
+    function renderComparisonTable(prices, grams) {
+      const usable = prices.filter((price) => price.available && !price.stale && price.buy > 0 && price.sell > 0);
+      const bestBuy = Math.min(...usable.filter((price) => feeKnown(price, "buy")).map((price) => effectiveTotal(price, "buy", grams)));
+      const bestSell = Math.max(...usable.filter((price) => feeKnown(price, "sell")).map((price) => effectiveTotal(price, "sell", grams)));
+      const rows = [...prices].sort((a, b) => {
+        const statusOrder = Number(!a.available || a.stale) - Number(!b.available || b.stale);
+        if (statusOrder) return statusOrder;
+        const comparison = compareNumeric(sortValue(a, sortState.key, grams), sortValue(b, sortState.key, grams), sortState.direction);
+        return comparison || displayProviderName(a.site).localeCompare(displayProviderName(b.site), "fa");
+      });
+      const body = document.getElementById("comparison-rows");
+      body.replaceChildren(...rows.map((price) => {
         const row = document.createElement("tr");
-        if (!price.available || price.stale || price[field] <= 0) row.classList.add("pending");
-        const total = effective(price, field, feeField, grams);
-        const isRankedPrice = ranked.includes(price);
-        const isBest = hasRankSpread && isRankedPrice && total === best;
-        const isWorst = hasRankSpread && isRankedPrice && total === worst;
-        if (isBest) row.classList.add("best");
-        if (isWorst) row.classList.add("worst");
-        if (price.stale) row.classList.add("stale");
-        const quoteDate = price.timestamp ? new Date(price.timestamp) : null;
-        const quoteTime = quoteDate && !Number.isNaN(quoteDate.getTime())
-          ? `Source quote: ${quoteDate.toLocaleTimeString(undefined, { timeZone: "Asia/Tehran" })}`
-          : "Source quote time unavailable";
-        const refreshed = price.fetchedAt
-          ? `Fetched: ${new Date(price.fetchedAt).toLocaleTimeString(undefined, { timeZone: "Asia/Tehran" })}`
-          : "Not fetched yet";
-        const site = `${price.site}\n${price.source || "Source unknown"}${price.stale ? " · STALE" : ""}`;
-        const unit = price.available && price[field] > 0
-          ? `${numberFormat.format(price[field])} toman\n${formatFee(price[feeField], price.feeIncludedInPrice)}\n${quoteTime}\n${refreshed}`
-          : "Waiting for price…";
-        const estimate = price.available && !price.stale && price[field] > 0
-          ? (feeKnown(price, feeField) ? `${numberFormat.format(Math.round(total))} toman` : "Not ranked: fee unknown")
-          : "Unavailable";
-        const movement = quoteMovements.get(`${price.site}:${field}`);
-        const movementIsFresh = movement && Date.now() - movement.changedAt < 1400;
-        for (const [index, cellValue] of [site, unit, estimate].entries()) {
-          const cell = document.createElement("td");
-          cell.className = ["provider-cell", "quote-cell", "estimate-cell"][index];
-          if (index === 0) {
-            const [provider, source] = cellValue.split("\n");
-            const name = document.createElement(providerTradeLinks[provider] ? "a" : "span");
-            if (providerTradeLinks[provider]) {
-              name.href = providerTradeLinks[provider];
-              name.target = "_blank";
-              name.rel = "noopener noreferrer";
-              name.title = `Open ${provider} trading page in a new tab`;
-            }
-            name.className = "provider-link";
-            name.textContent = provider;
-            cell.append(name);
-            const sourceLabel = document.createElement("span");
-            sourceLabel.className = "provider-source";
-            sourceLabel.textContent = source;
-            cell.append(sourceLabel);
-          } else if (index === 1 && price.available && price[field] > 0) {
-            const [amount, fee, quote, fetched] = cellValue.split("\n");
-            const value = document.createElement("span");
-            value.className = `quote-value${movementIsFresh ? ` quote-${movement.direction}` : ""}`;
-            value.textContent = amount;
-            cell.append(value);
-            if (movement && movement.direction) {
-              const direction = document.createElement("span");
-              direction.className = `price-direction direction-${movement.direction}${movementIsFresh ? " movement-new" : ""}`;
-              direction.textContent = movement.direction === "up" ? "↑ Up" : "↓ Down";
-              direction.title = "Direction of the most recent source-price change";
-              cell.append(direction);
-            }
-            const feeLabel = document.createElement("span");
-            feeLabel.className = `fee-label${price[feeField] == null && !price.feeIncludedInPrice ? " fee-unknown" : ""}`;
-            feeLabel.textContent = fee.replace(/^Fee: /, "Fee · ");
-            // /\ Keep fee and source quote time together so both can be read without scanning separate lines.
-            const quoteContext = document.createElement("div");
-            quoteContext.className = "quote-context";
-            quoteContext.append(feeLabel);
-            const quoteMeta = document.createElement("span");
-            quoteMeta.className = "quote-meta quote-time";
-            quoteMeta.textContent = quote;
-            quoteContext.append(quoteMeta);
-            cell.append(quoteContext);
-            const fetchedMeta = document.createElement("span");
-            fetchedMeta.className = "quote-meta fetch-time";
-            fetchedMeta.textContent = fetched;
-            cell.append(fetchedMeta);
-          } else if (index === 2) {
-            const amount = document.createElement("span");
-            amount.className = price.available && !price.stale && price[field] > 0 && feeKnown(price, feeField)
-              ? "estimate-value"
-              : "estimate-unavailable";
-            amount.textContent = cellValue;
-            cell.append(amount);
-            if (movementIsFresh) cell.classList.add(`quote-${movement.direction}`);
-            if (isBest || isWorst) {
-              const rankNote = document.createElement("span");
-              rankNote.className = `rank-note ${isBest ? "rank-best" : "rank-worst"}`;
-              rankNote.textContent = isBest ? "Best" : "Least favorable";
-              const rankContext = document.createElement("span");
-              rankContext.className = "rank-context";
-              rankContext.textContent = isBest
-                ? field === "buy" ? "Lowest cost" : "Highest proceeds"
-                : field === "buy" ? "Highest cost" : "Lowest proceeds";
-              cell.append(rankNote);
-              cell.append(rankContext);
+        const usableQuote = price.available && price.buy > 0 && price.sell > 0;
+        if (!price.available) row.classList.add("pending-row");
+        if (price.stale) row.classList.add("stale-row");
+
+        const providerCell = document.createElement("td");
+        const provider = document.createElement("div");
+        provider.className = "flex items-center gap-2 font-semibold";
+        const tradeURL = providerTradeLinks[price.site];
+        if (tradeURL) {
+          const favicon = document.createElement("img");
+          favicon.className = "provider-logo";
+          favicon.src = `${new URL(tradeURL).origin}/favicon.ico`;
+          favicon.alt = "";
+          favicon.setAttribute("aria-hidden", "true");
+          favicon.loading = "lazy";
+          favicon.addEventListener("error", () => favicon.remove(), { once: true });
+          provider.append(favicon);
+        }
+        const providerName = document.createElement("span");
+        providerName.textContent = displayProviderName(price.site);
+        provider.append(providerName);
+        providerCell.append(provider);
+        const source = document.createElement("span");
+        source.className = "source-detail";
+        source.textContent = `منبع نرخ: ${displayQuoteSource(price.source)}`;
+        providerCell.append(source);
+        if (price.stale) {
+          const status = document.createElement("span");
+          status.className = "mt-1 block text-xs font-normal text-muted";
+          status.textContent = "داده قدیمی";
+          providerCell.append(status);
+        }
+        row.append(providerCell);
+
+        for (const side of ["buy", "sell"]) {
+          const priceCell = document.createElement("td");
+          const quote = document.createElement("span");
+          quote.className = "quote-line number";
+          quote.textContent = usableQuote ? formatToman(price[side]) : "—";
+          const movement = quoteMovements.get(`${price.site}:${side}`);
+          if (movement?.direction && Date.now() - movement.changedAt < 1400) quote.classList.add(`quote-${movement.direction}`);
+          priceCell.append(quote);
+          if (movement?.direction) {
+            const movementLabel = document.createElement("span");
+            movementLabel.className = "movement-label";
+            movementLabel.textContent = movement.direction === "up" ? "↑ افزایش" : "↓ کاهش";
+            priceCell.append(movementLabel);
+          }
+          const effectiveValue = usableQuote && feeKnown(price, side) ? effectiveTotal(price, side, grams) : null;
+          const effectiveText = document.createElement("span");
+          const feeSide = side === "buy" ? "buy" : "sell";
+          if (effectiveValue != null) {
+            effectiveText.className = "effective-line effective-price number";
+            effectiveText.textContent = `${formatToman(effectiveValue)} · سفارش ${decimalNumberFormat.format(grams)} گرم`;
+            if (!price.stale && (side === "buy" ? effectiveValue === bestBuy : effectiveValue === bestSell)) {
+              priceCell.classList.add("best-effective");
+              const bestLabel = document.createElement("span");
+              bestLabel.className = "best-label";
+              bestLabel.textContent = side === "buy" ? "کمترین مبلغ خرید" : "بیشترین مبلغ دریافتی";
+              effectiveText.append(bestLabel);
             }
           } else {
-            cell.textContent = cellValue;
+            effectiveText.className = "effective-line";
+            effectiveText.textContent = usableQuote ? "مبلغ نهایی: نامشخص" : "در انتظار نرخ";
           }
-          row.appendChild(cell);
+          priceCell.append(effectiveText);
+          row.append(priceCell);
+
+          const feeCell = document.createElement("td");
+          if (usableQuote) {
+            feeCell.append(feeBadge(price, feeSide, grams));
+            const feeDetail = document.createElement("span");
+            feeDetail.className = "fee-detail";
+            feeDetail.textContent = feeRateDetail(price, feeSide);
+            feeCell.append(feeDetail);
+          }
+          else {
+            const unknown = document.createElement("span");
+            unknown.className = "fee-badge fee-unknown";
+            unknown.textContent = "نامشخص";
+            feeCell.append(unknown);
+            const feeDetail = document.createElement("span");
+            feeDetail.className = "fee-detail";
+            feeDetail.textContent = "جزئیات تعرفه نامشخص";
+            feeCell.append(feeDetail);
+          }
+          row.append(feeCell);
         }
+
+        const spreadCell = document.createElement("td");
+        const spread = usableQuote && !price.stale ? effectiveSpread(price, grams) : null;
+        if (spread == null) {
+          spreadCell.textContent = "—";
+          spreadCell.className = "text-muted";
+        } else {
+          spreadCell.className = `number ${spread < 0 ? "spread-negative" : "spread-positive"}`;
+          spreadCell.textContent = formatToman(spread, 2);
+          const spreadHelp = document.createElement("span");
+          spreadHelp.className = "effective-line";
+          spreadHelp.textContent = "هر گرم · خرید مؤثر − فروش مؤثر";
+          spreadCell.append(spreadHelp);
+        }
+        row.append(spreadCell);
+
+        const actionCell = document.createElement("td");
+        const chartButton = document.createElement("button");
+        chartButton.type = "button";
+        chartButton.className = "row-action";
+        chartButton.dataset.chartProvider = price.site;
+        chartButton.title = `نمایش نمودار ${displayProviderName(price.site)}`;
+        chartButton.setAttribute("aria-label", `نمایش نمودار ${displayProviderName(price.site)}`);
+        chartButton.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 15.5 7.2 11l3 2.4 6.8-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.8 5.4H17v4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>نمودار</span>';
+        actionCell.append(chartButton);
+        if (tradeURL) {
+          const tradeLink = document.createElement("a");
+          tradeLink.className = "row-action ms-1";
+          tradeLink.href = tradeURL;
+          tradeLink.target = "_blank";
+          tradeLink.rel = "noopener noreferrer";
+          tradeLink.title = `ورود به وب‌سایت ${displayProviderName(price.site)} در زبانه جدید`;
+          tradeLink.setAttribute("aria-label", `ورود به وب‌سایت ${displayProviderName(price.site)}`);
+          tradeLink.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 11v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>وب‌سایت</span>';
+          actionCell.append(tradeLink);
+        }
+        row.append(actionCell);
         return row;
       }));
     }
@@ -509,7 +754,7 @@
       const status = document.getElementById("status");
       try {
         const response = await fetch("/api/prices");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error("پاسخ سرور ناموفق بود.");
         const prices = await response.json();
         // /\ Compare each fresh quote with its previous reading and remember its latest direction.
         for (const price of prices) {
@@ -530,11 +775,12 @@
         }
         updateChartSites(prices);
         const grams = Math.min(10000, Math.max(0.001, Number(document.getElementById("grams").value) || 1));
-        renderRows("buy-prices", prices, "buy", "buyFee", grams);
-        renderRows("sell-prices", prices, "sell", "sellFee", grams);
-        status.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+        renderDecisionSummary(prices, grams);
+        renderComparisonTable(prices, grams);
+        const updateTime = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
+        status.textContent = `آخرین به‌روزرسانی: ${updateTime}`;
       } catch (error) {
-        status.textContent = `Could not load prices: ${error.message}`;
+        status.textContent = "دریافت قیمت‌ها ناموفق بود؛ اتصال سرور را بررسی کنید.";
       }
     }
 
@@ -542,6 +788,17 @@
     setInterval(refreshPrices, 5000);
     document.getElementById("grams").addEventListener("input", refreshPrices);
     document.getElementById("grams").addEventListener("change", syncChartSymbol);
-    initializeChart();
+    // /\ Let keyboard and mouse users sort by the real numeric values behind each displayed price or fee.
+    document.querySelectorAll("button[data-sort-key]").forEach((button) => {
+      button.addEventListener("click", () => chooseSort(button.dataset.sortKey));
+    });
+    // /\ A provider's chart action selects it in the existing chart and takes the user to that chart.
+    document.getElementById("comparison-rows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-chart-provider]");
+      if (!button) return;
+      document.getElementById("chart-site").value = button.dataset.chartProvider;
+      syncChartSymbol();
+      document.getElementById("chart-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     document.getElementById("chart-site").addEventListener("change", syncChartSymbol);
     document.getElementById("chart-side").addEventListener("change", syncChartSymbol);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -21,7 +22,7 @@ import (
 
 // /\ Bundle the dashboard and chart assets so the server can run from any working directory.
 //
-//go:embed index.html app.js charting_library
+//go:embed index.html app.js app.css styles.css fonts charting_library
 var page embed.FS
 
 // /\ In-memory prices shared by the scrapers and the dashboard page.
@@ -119,12 +120,21 @@ func recordPrice(price scraper.Price, store *priceStore, database *storage.Postg
 
 // /\ Refresh one site's price in the background and save each accepted result.
 func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, database *storage.Postgres) {
+	var lastNoQuoteLog time.Time
 	refresh := func() {
 		price, err := fetcher.GetPrice()
 		if err != nil {
+			if errors.Is(err, scraper.ErrNoCurrentQuote) {
+				if lastNoQuoteLog.IsZero() || time.Since(lastNoQuoteLog) >= 5*time.Minute {
+					log.Printf("%s has no fresh quote from Zarscope; the source is marked stale", name)
+					lastNoQuoteLog = time.Now()
+				}
+				return
+			}
 			log.Printf("%s price update failed: %v", name, err)
 			return
 		}
+		lastNoQuoteLog = time.Time{}
 		if price.Source == "" {
 			price.Source = source
 		}

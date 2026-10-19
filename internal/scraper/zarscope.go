@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +10,9 @@ import (
 )
 
 const zarScopeGoldSourcesURL = "https://api.zarscope.com/api/sources/?metal=gold"
+
+// /\\ This expected condition means Zarscope has not published a fresh quote for this platform yet.
+var ErrNoCurrentQuote = errors.New("Zarscope source has no current quote")
 
 // /\ This response is the public Zarscope fallback source for a live quote.
 type zarScopeSourcesResponse struct {
@@ -57,7 +61,7 @@ func (s ZarScopeScraper) GetPrice() (Price, error) {
 			continue
 		}
 		if source.IsStale || source.LatestBuyPrice <= 0 || source.LatestSellPrice <= 0 {
-			return Price{}, fmt.Errorf("Zarscope has no current quote for %s", s.Site)
+			return Price{}, fmt.Errorf("%w for %s", ErrNoCurrentQuote, s.Site)
 		}
 		var timestamp *time.Time
 		if parsed, err := time.Parse(time.RFC3339Nano, source.LatestFetchedAt); err == nil {

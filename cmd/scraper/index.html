@@ -1,200 +1,122 @@
 <!doctype html>
-<html lang="en">
+<html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gold Prices</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --ink: #20291f;
-      --muted: #697267;
-      --line: #e6e8df;
-      --paper: #f5f6f1;
-      --card: #fff;
-      --green: #245b42;
-      --gold: #c49336;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: radial-gradient(ellipse at 12% 0%, #f1e8d3 0, transparent 34rem), var(--paper);
-      color: var(--ink);
-      font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    main { width: min(1440px, 100% - 48px); margin: 0 auto; padding: 48px 0 64px; }
-    .topline { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-    .eyebrow { margin: 0 0 8px; color: #8c6d32; font-size: 12px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: clamp(32px, 5vw, 48px); line-height: 1.1; letter-spacing: -.045em; }
-    .intro { max-width: 720px; margin: 14px 0 28px; color: var(--muted); }
-    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 24px 0; padding: 16px 18px; border: 1px solid #e7dfce; border-radius: 16px; background: #fffdf8; }
-    .size-control { display: flex; align-items: center; gap: 12px; font-weight: 650; }
-    input { width: 112px; padding: 10px 12px; border: 1px solid #d8d7ce; border-radius: 9px; background: white; color: var(--ink); font: inherit; }
-    input:focus { outline: 3px solid #c4933633; border-color: var(--gold); }
-    /* /\ Set the refresh message apart from the order-size control without making it shout. */
-    #status { margin: 0; padding: 5px 10px; border: 1px solid #ece9df; border-radius: 999px; background: #fff; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-    /* /\ These controls only choose which already-derived candle series the chart requests. */
-    .chart-section { margin: 0 0 20px; }
-    .chart-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
-    .chart-control { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
-    select { min-width: 130px; padding: 9px 30px 9px 10px; border: 1px solid #d8d7ce; border-radius: 9px; background: white; color: var(--ink); font: inherit; }
-    select:focus { outline: 3px solid #c4933633; border-color: var(--gold); }
-    #chart-status { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
-    #candle-chart { width: 100%; height: 620px; }
-    .tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-    section { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: 0 8px 28px #27321c0a; }
-    /* /\ Give the buy and sell comparisons a quiet accent so they are easier to tell apart. */
-    .tables > section:first-child { border-top: 3px solid #5b866b; }
-    .tables > section:last-child { border-top: 3px solid #bd9a55; }
-    /* /\ Give each section title a light baseline so it reads as a separate header row. */
-    .section-heading { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 11px; border-bottom: 1px solid #eff0eb; background: #fcfcfa; }
-    h2 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
-    .direction { color: var(--muted); font-size: 12px; }
-    .table-wrap { overflow-x: auto; }
-    /* /\ Keep the comparison compact and give each kind of information a predictable lane. */
-    .tables table { width: 100%; min-width: 500px; table-layout: fixed; border-collapse: collapse; text-align: left; }
-    .tables th:nth-child(1), .tables td:nth-child(1) { width: 25%; }
-    .tables th:nth-child(2), .tables td:nth-child(2) { width: 39%; }
-    .tables th:nth-child(3), .tables td:nth-child(3) { width: 36%; }
-    th { padding: 8px 12px; background: #f7f8f4; color: #777f72; font-size: 10px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
-    td { padding: 10px 12px; border-top: 1px solid #eff0eb; vertical-align: middle; white-space: pre-line; }
-    /* /\ Align the toman amounts by their digits to make provider prices quicker to scan. */
-    .tables th:nth-child(n + 2), .tables td:nth-child(n + 2) { text-align: right; font-variant-numeric: tabular-nums; }
-    tbody tr { transition: background .15s ease; }
-    tbody tr:hover { background: #fafbf8; }
-    .provider-cell { min-width: 0; font-size: 13px; font-weight: 700; }
-    /* /\ Make provider names look clickable while keeping the table's quiet palette. */
-    .provider-link { color: inherit; text-decoration: none; text-underline-offset: 3px; }
-    .provider-link:hover { color: #315f45; text-decoration: underline; }
-    .provider-link:focus-visible { border-radius: 3px; outline: 2px solid #6d9076; outline-offset: 3px; }
-    .provider-source { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 450; }
-    .quote-cell { color: var(--ink); font-variant-numeric: tabular-nums; }
-    .quote-value { display: block; margin-bottom: 3px; font-size: 13px; font-weight: 650; }
-    /* /\ Spell out the last move so direction is clear from the symbol and the word. */
-    .price-direction { display: inline-block; margin: 0 0 4px; padding: 1px 6px; border: 1px solid; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 1.4; }
-    .direction-up { border-color: #d4e6d7; background: #f0f7f1; color: #347048; }
-    .direction-down { border-color: #ecd9d4; background: #fbf2ef; color: #9a5145; }
-    /* /\ Pop the direction badge once when a new quote movement arrives. */
-    .price-direction.movement-new { animation: movement-pop 500ms cubic-bezier(.2, .8, .25, 1); }
-    @keyframes movement-pop { 0% { opacity: .45; transform: scale(.82); } 70% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
-    /* /\ Briefly highlight a changed quote and its estimate, then leave the direction tag visible. */
-    .quote-up { animation: price-rise 1.2s ease-out; }
-    .quote-down { animation: price-fall 1.2s ease-out; }
-    @keyframes price-rise { 0% { background-color: #e4f2e6; } 100% { background-color: transparent; } }
-    @keyframes price-fall { 0% { background-color: #f8e9e5; } 100% { background-color: transparent; } }
-    /* /\ Let the quote gently travel in the same direction as its arrow when its value changes. */
-    .quote-value.quote-up { animation: quote-rises 850ms ease-out; }
-    .quote-value.quote-down { animation: quote-falls 850ms ease-out; }
-    @keyframes quote-rises { from { opacity: .55; transform: translateY(8px); background-color: #e4f2e6; } to { opacity: 1; transform: translateY(0); background-color: transparent; } }
-    @keyframes quote-falls { from { opacity: .55; transform: translateY(-8px); background-color: #f8e9e5; } to { opacity: 1; transform: translateY(0); background-color: transparent; } }
-    @media (prefers-reduced-motion: reduce) {
-      .quote-up, .quote-down, .quote-value.quote-up, .quote-value.quote-down, .movement-new { animation: none; }
-    }
-    /* /\ Keep the fee visible as a compact badge between the quote and its timestamp. */
-    .fee-label { display: inline-block; margin: 0 0 4px; padding: 1px 6px; border: 1px solid #eadfca; border-radius: 999px; background: #fbf6eb; color: #826324; font-size: 10px; font-weight: 650; }
-    .fee-unknown { border-color: #e7e8e3; background: #f5f6f3; color: #777f72; }
-    /* /\ Put the two decision details on one compact line directly below the provider quote. */
-    .quote-context { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 3px 6px; }
-    .quote-context .fee-label { margin: 0; }
-    .quote-meta { display: block; color: var(--muted); line-height: 1.4; }
-    /* /\ Make the source quote time easy to find; keep our own fetch time quieter. */
-    .quote-time { color: #515d50; font-size: 11px; font-weight: 600; }
-    .fetch-time { margin-top: 1px; color: #858b82; font-size: 9px; }
-    /* /\ A softly shaded final column makes the actual pay/receive amount easy to spot. */
-    .estimate-cell { min-width: 0; border-left: 2px solid #dce5da; background: #f5f8f3; color: #244b35; font-weight: 750; font-variant-numeric: tabular-nums; }
-    /* /\ Give the fee-adjusted amount a clear size step above the source quote. */
-    .estimate-value { display: block; font-size: 19px; line-height: 1.2; letter-spacing: -.025em; }
-    .estimate-unavailable { display: block; color: var(--muted); font-size: 11px; font-weight: 550; line-height: 1.35; }
-    /* /\ Keep prices neutral; the label tells you what the comparison means. */
-    .estimate-cell { color: var(--ink); }
-    /* /\ Use quiet row tints and one slim marker so the table stays easy to scan. */
-    .best { background: #f7faf7; }
-    .worst { background: #fcfaf5; }
-    .best .provider-cell { box-shadow: inset 3px 0 #6d9076; }
-    .worst .provider-cell { box-shadow: inset 3px 0 #b69a60; }
-    /* /\ Pair a short status badge with plain text explaining the ranking. */
-    .rank-note { display: block; width: fit-content; margin: 7px 0 0 auto; padding: 2px 6px; border: 1px solid; border-radius: 4px; font-size: 9px; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
-    .rank-best { border-color: #d7e4d9; background: #f1f6f1; color: #42664b; }
-    .rank-worst { border-color: #e9dfc9; background: #faf6ed; color: #796337; }
-    .rank-context { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 500; }
-    /* /\ Put the two customer decisions up front; the tables below explain how each estimate is built. */
-    .decision-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0 0 20px; }
-    .decision-card { min-width: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-    .decision-label { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
-    .decision-provider { margin: 0 0 3px; font-size: 14px; font-weight: 700; }
-    .decision-amount { margin: 0; font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
-    .decision-detail { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
-    .pending { color: #92968e; }
-    .stale { color: #9a6518; }
-    @media (max-width: 900px) {
-      main { width: min(100% - 32px, 680px); padding-top: 32px; }
-      .tables { grid-template-columns: 1fr; }
-      .decision-summary { grid-template-columns: 1fr; gap: 10px; }
-    }
-    @media (max-width: 560px) {
-      main { width: calc(100% - 24px); padding: 24px 0 40px; }
-      .topline { align-items: flex-start; }
-      .toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
-      .size-control { width: 100%; justify-content: space-between; }
-      section { border-radius: 12px; }
-      .section-heading { padding: 16px; }
-      th, td { padding: 9px 10px; }
-      .estimate-value { font-size: 17px; }
-    }
-  </style>
+  <meta name="theme-color" content="#101114">
+  <title>پایش قیمت طلا</title>
+  <link rel="stylesheet" href="/app.css">
 </head>
-<body>
-  <main>
-    <header>
-      <div class="topline"><div><p class="eyebrow">Market overview</p><h1>Gold prices</h1></div></div>
-      <p class="intro">Compare live 18-karat gold quotes across providers, with estimated fees included for your order size.</p>
+<body class="min-h-screen bg-paper text-ink antialiased">
+  <main class="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 lg:px-8">
+    <!-- /\ Keep the page title and live status together so the first screen stays focused on prices. -->
+    <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="mb-2 text-xs font-bold tracking-wide text-accent">بازار طلا · ۱۸ عیار</p>
+        <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">مقایسه قیمت پلتفرم‌ها</h1>
+        <p class="mt-2 max-w-2xl text-sm leading-7 text-muted">قیمت اعلام‌شده، کارمزد و برآورد مبلغ نهایی خرید یا فروش را کنار هم ببینید.</p>
+      </div>
+      <p id="status" class="rounded-full border border-line bg-panel px-3 py-2 text-xs text-muted" role="status" aria-live="polite">در حال دریافت قیمت‌ها…</p>
     </header>
-    <div class="toolbar">
-      <label class="size-control" for="grams">Order size <span><input id="grams" type="number" min="0.001" max="10000" step="0.001" value="1"> grams</span></label>
-      <p id="status" role="status" aria-live="polite">Loading prices…</p>
+
+    <!-- /\ The selected order size controls the existing per-gram fee estimates and the chart series. -->
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-panel p-4 shadow-panel">
+      <label class="flex items-center gap-3 text-sm font-semibold" for="grams">
+        مقدار سفارش
+        <span class="flex items-center gap-2 font-normal text-muted">
+          <input id="grams" class="w-24 rounded-lg border border-line bg-panel px-3 py-2 text-center text-ink" type="number" min="0.001" max="10000" step="0.001" value="1" inputmode="decimal">
+          گرم
+        </span>
+      </label>
+      <p class="text-xs text-muted">مبالغ با رقم فارسی و واحد تومان نمایش داده می‌شوند.</p>
     </div>
 
-    <!-- /\ Put the clearest buy and sell outcomes here before the detailed provider-by-provider rows. -->
-    <div class="decision-summary" role="group" aria-label="Best current fee-adjusted estimates">
-      <div class="decision-card">
-        <p class="decision-label" id="best-buy-heading">Lowest estimated buy cost</p>
-        <p class="decision-provider" id="best-buy-provider">Waiting for prices…</p>
-        <p class="decision-amount" id="best-buy-amount">—</p>
-        <p class="decision-detail" id="best-buy-detail">For the selected order size, including known fees.</p>
-      </div>
-      <div class="decision-card">
-        <p class="decision-label" id="best-sell-heading">Highest estimated sale proceeds</p>
-        <p class="decision-provider" id="best-sell-provider">Waiting for prices…</p>
-        <p class="decision-amount" id="best-sell-amount">—</p>
-        <p class="decision-detail" id="best-sell-detail">For the selected order size, after known fees.</p>
-      </div>
-    </div>
+    <!-- /\\ Put the two clearest customer decisions back above the provider details. -->
+    <section class="decision-summary mb-5 grid gap-3 sm:grid-cols-2" role="group" aria-label="بهترین قیمت‌های فعلی">
+      <article class="decision-card decision-buy rounded-2xl border border-line bg-panel p-5 shadow-panel">
+        <p id="best-buy-heading" class="decision-label text-xs font-bold text-muted">کمترین هزینه خرید</p>
+        <p id="best-buy-provider" class="mt-2 text-sm font-semibold">در انتظار قیمت‌ها…</p>
+        <p id="best-buy-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums text-buy">—</p>
+        <p id="best-buy-detail" class="mt-2 text-xs text-muted">برای وزن انتخاب‌شده، با احتساب کارمزد</p>
+      </article>
+      <article class="decision-card decision-sell rounded-2xl border border-line bg-panel p-5 shadow-panel">
+        <p id="best-sell-heading" class="decision-label text-xs font-bold text-muted">بیشترین دریافتی فروش</p>
+        <p id="best-sell-provider" class="mt-2 text-sm font-semibold">در انتظار قیمت‌ها…</p>
+        <p id="best-sell-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums text-sell">—</p>
+        <p id="best-sell-detail" class="mt-2 text-xs text-muted">برای وزن انتخاب‌شده، پس از کسر کارمزد</p>
+      </article>
+    </section>
 
-    <section class="chart-section" aria-labelledby="chart-title">
-      <div class="section-heading">
-        <h2 id="chart-title">Fee-adjusted price per gram</h2>
-        <div class="chart-controls">
-          <label class="chart-control" for="chart-site">Site<select id="chart-site" disabled><option>Loading…</option></select></label>
-          <label class="chart-control" for="chart-side">Price<select id="chart-side"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
+    <!-- /\ One scrollable table keeps each provider's buy, sell, fee, and spread values on the same row. -->
+    <section class="overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" aria-labelledby="comparison-title">
+      <div class="flex flex-wrap items-end justify-between gap-2 border-b border-line px-4 py-4 sm:px-5">
+        <div>
+          <h2 id="comparison-title" class="text-lg font-bold">جدول مقایسه قیمت</h2>
+          <p class="mt-1 text-xs text-muted">قیمت درشت: نرخ اعلامی هر گرم · خط کوچک: مبلغ نهایی سفارش با احتساب کارمزد</p>
+        </div>
+        <p class="text-xs text-muted">برای مرتب‌سازی، عنوان ستون‌های قیمت و کارمزد را انتخاب کنید.</p>
+      </div>
+      <div class="table-scroll" tabindex="0" aria-label="جدول قابل پیمایش افقی">
+        <table class="comparison-table" aria-describedby="comparison-help">
+          <caption id="comparison-help" class="sr-only">مقایسه قیمت و کارمزد خرید و فروش طلا در پلتفرم‌ها. ترتیب اولیه کمترین هزینه مؤثر خرید است.</caption>
+          <thead>
+            <tr>
+              <th class="provider-column" scope="col">ارائه‌دهنده</th>
+              <th class="buy-column" scope="col" aria-sort="ascending">
+                <button class="sort-button" type="button" data-sort-key="buyPrice" aria-pressed="true" aria-label="مرتب‌سازی بر اساس کمترین هزینه مؤثر خرید">
+                  <span>قیمت خرید</span><svg data-sort-icon="buyPrice" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+              </th>
+              <th class="fee-column" scope="col" aria-sort="none">
+                <button class="sort-button" type="button" data-sort-key="buyFee" aria-pressed="false" aria-label="مرتب‌سازی بر اساس کارمزد خرید">
+                  <span>کارمزد خرید</span><svg data-sort-icon="buyFee" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </th>
+              <th class="sell-column" scope="col" aria-sort="none">
+                <button class="sort-button" type="button" data-sort-key="sellPrice" aria-pressed="false" aria-label="مرتب‌سازی بر اساس بیشترین دریافتی مؤثر فروش">
+                  <span>قیمت فروش</span><svg data-sort-icon="sellPrice" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </th>
+              <th class="fee-column" scope="col" aria-sort="none">
+                <button class="sort-button" type="button" data-sort-key="sellFee" aria-pressed="false" aria-label="مرتب‌سازی بر اساس کارمزد فروش">
+                  <span>کارمزد فروش</span><svg data-sort-icon="sellFee" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </th>
+              <th class="spread-column" scope="col" aria-sort="none">
+                <button class="sort-button" type="button" data-sort-key="spread" aria-pressed="false" aria-label="مرتب‌سازی بر اساس اختلاف مؤثر خرید و فروش">
+                  <span>اختلاف خرید و فروش</span><svg data-sort-icon="spread" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </th>
+              <th class="action-column" scope="col">عملیات</th>
+            </tr>
+          </thead>
+          <tbody id="comparison-rows">
+            <tr><td class="py-8 text-center text-sm text-muted" colspan="7">در حال دریافت قیمت‌ها…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="border-t border-line px-4 py-3 text-xs leading-6 text-muted sm:px-5">اختلاف هر پلتفرم برابر است با هزینه مؤثر خرید هر گرم منهای دریافتی مؤثر فروش هر گرم. اگر کارمزد نامشخص باشد، مبلغ نهایی و اختلاف قابل محاسبه نیست.</p>
+    </section>
+
+    <!-- /\ The chart remains the existing TradingView Advanced Charts widget and uses the provider selection below. -->
+    <section id="chart-panel" class="mt-6 overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" aria-labelledby="chart-title">
+      <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-4 py-4 sm:px-5">
+        <div>
+          <h2 id="chart-title" class="text-lg font-bold">نمودار قیمت</h2>
+          <p id="chart-status" class="mt-1 text-xs text-muted" role="status" aria-live="polite">در انتظار دریافت داده‌های نمودار…</p>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <label class="grid gap-1 text-xs font-semibold text-muted" for="chart-site">ارائه‌دهنده
+            <select id="chart-site" class="min-w-[9rem] rounded-lg border border-line bg-panel px-3 py-2 text-ink" disabled><option>در حال بارگذاری…</option></select>
+          </label>
+          <label class="grid gap-1 text-xs font-semibold text-muted" for="chart-side">نوع قیمت
+            <select id="chart-side" class="min-w-[7rem] rounded-lg border border-line bg-panel px-3 py-2 text-ink"><option value="buy">خرید</option><option value="sell">فروش</option></select>
+          </label>
         </div>
       </div>
-      <div style="padding: 0 20px 16px">
-        <p id="chart-status" role="status" aria-live="polite">Waiting for sites…</p>
-        <div id="candle-chart" aria-label="TradingView chart of stored gold price observations"></div>
-      </div>
+      <div class="p-2 sm:p-4"><div id="candle-chart" aria-label="نمودار کندلی قیمت طلا"></div></div>
     </section>
-    <div class="tables">
-      <section>
-        <div class="section-heading"><h2>Buying gold</h2><span class="direction">Lowest estimated cost first</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Provider quote / gram</th><th>Estimated amount you pay</th></tr></thead><tbody id="buy-prices"></tbody></table></div>
-      </section>
-      <section>
-        <div class="section-heading"><h2>Selling gold</h2><span class="direction">Highest estimated proceeds first</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Provider / source</th><th>Provider quote / gram</th><th>Estimated amount you receive</th></tr></thead><tbody id="sell-prices"></tbody></table></div>
-      </section>
-    </div>
   </main>
-
   <script src="/charting_library/charting_library.standalone.js"></script>
   <script src="/app.js" defer></script>
 </body>
