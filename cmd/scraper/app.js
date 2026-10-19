@@ -50,7 +50,7 @@
       "MelliGold public API": "رابط عمومی ملی‌گلد",
       "MelliGold API or Zarscope fallback": "رابط ملی‌گلد یا زرسکوپ",
       "TapsiGold public API": "رابط عمومی تپسی‌گلد",
-      "Invi public API": "رابط عمومی اینوی",
+      "Invi WebSocket": "داده زنده از ارتباط اینوی",
       "Snapp Sarmayeh public API": "رابط عمومی اسنپ سرمایه",
       "Digi Gold public API": "رابط عمومی دیجی‌گلد",
       "Zarpin public API": "رابط عمومی زرپین",

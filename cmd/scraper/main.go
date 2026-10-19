@@ -182,7 +182,7 @@ func main() {
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
-		"TapsiGold", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric", "Zarafza", "Zarpay",
+		"TapsiGold", "Invi", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric", "Zarafza", "Zarpay", "Zarpin",
 	})
 
 	fetchers := []struct {
@@ -203,15 +203,35 @@ func main() {
 		{"Daric", "Daric public API", scraper.DaricScraper{Client: client}},
 		{"Zarafza", "Zarafza public API", scraper.ZarafzaScraper{Client: client}},
 		{"Zarpay", "Zarpay public API", scraper.ZarpayScraper{Client: client}},
-		// /\ These four do not expose a usable public quote API, so use Zarscope's public feed.
+		{"Zarpin", "Zarpin public API", scraper.ZarpinScraper{Client: client}},
+		// /\ Keep Zarscope only as a fallback for providers without a direct scraper.
 		// {"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
-		{"Invi", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "invi", Site: "Invi"}},
 		{"Digi Gold", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
-		{"Zarpin", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
+		// {"Zarpin", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
 	}
 	for _, item := range fetchers {
 		go pollPrices(item.name, item.source, item.fetcher, store, database)
 	}
+
+	// /\\ Keep Invi's public market stream alive and save each accepted gold quote like the other live feeds.
+	invi := scraper.NewInviScraper()
+	go func() {
+		for {
+			prices := make(chan scraper.Price, 10)
+			go func() {
+				for price := range prices {
+					if err := recordPrice(price, store, database); err != nil {
+						log.Printf("Invi quote update failed: %v", err)
+					}
+				}
+			}()
+			if err := invi.Start(prices); err != nil {
+				log.Printf("Invi connection ended: %v", err)
+			}
+			close(prices)
+			time.Sleep(5 * time.Second)
+		}
+	}()
 
 	hamrah := scraper.NewHamrahScraper()
 	go func() {
