@@ -32,7 +32,7 @@
     </div>
 
     <!-- /\\ Put the two clearest customer decisions back above the provider details. -->
-    <section class="decision-summary mb-5 grid gap-3 sm:grid-cols-2" role="group" aria-label="بهترین قیمت‌های فعلی">
+    <section class="decision-summary mb-5 grid gap-3" role="group" aria-label="بهترین قیمت‌های فعلی و اختلاف احتمالی">
       <article class="decision-card decision-buy rounded-2xl border border-line bg-panel p-5 shadow-panel">
         <p id="best-buy-heading" class="decision-label text-xs font-bold text-muted">کمترین هزینه خرید</p>
         <p id="best-buy-provider" class="mt-2 text-sm font-semibold">در انتظار قیمت‌ها…</p>
@@ -45,6 +45,12 @@
         <p id="best-sell-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums text-sell">—</p>
         <p id="best-sell-detail" class="mt-2 text-xs text-muted">برای وزن انتخاب‌شده، پس از کسر کارمزد</p>
       </article>
+      <article class="decision-card decision-opportunity rounded-2xl border border-line bg-panel p-5 shadow-panel">
+        <p id="opportunity-heading" class="decision-label text-xs font-bold text-muted">سود احتمالی</p>
+        <p id="opportunity-route" class="mt-2 text-sm font-semibold">در انتظار نرخ‌های معتبر</p>
+        <p id="opportunity-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums">—</p>
+        <p id="opportunity-detail" class="mt-2 text-xs text-muted">برآورد برای وزن انتخاب‌شده، پس از کارمزدهای شناخته‌شده</p>
+      </article>
     </section>
 
     <!-- /\ One scrollable table keeps each provider's buy, sell, fee, and spread values on the same row. -->
@@ -54,10 +60,13 @@
           <h2 id="comparison-title" class="text-lg font-bold">جدول مقایسه قیمت</h2>
           <p class="mt-1 text-xs text-muted">قیمت درشت: نرخ اعلامی هر گرم · خط کوچک: مبلغ نهایی سفارش با احتساب کارمزد</p>
         </div>
-        <p class="text-xs text-muted">برای مرتب‌سازی، عنوان ستون‌های قیمت و کارمزد را انتخاب کنید.</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <p class="text-xs text-muted">برای مرتب‌سازی، عنوان ستون‌های قیمت و کارمزد را انتخاب کنید.</p>
+          <button id="fee-columns-toggle" class="row-action fee-toggle" type="button" aria-controls="comparison-table" aria-expanded="false">نمایش کارمزدها</button>
+        </div>
       </div>
       <div class="table-scroll" tabindex="0" aria-label="جدول قابل پیمایش افقی">
-        <table class="comparison-table" aria-describedby="comparison-help">
+        <table id="comparison-table" class="comparison-table fees-hidden" aria-describedby="comparison-help">
           <caption id="comparison-help" class="sr-only">مقایسه قیمت و کارمزد خرید و فروش طلا در پلتفرم‌ها. ترتیب اولیه کمترین هزینه مؤثر خرید است.</caption>
           <thead>
             <tr>
@@ -67,14 +76,14 @@
                   <span>قیمت خرید</span><svg data-sort-icon="buyPrice" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
               </th>
-              <th class="fee-column" scope="col" aria-sort="none">
-                <button class="sort-button" type="button" data-sort-key="buyFee" aria-pressed="false" aria-label="مرتب‌سازی بر اساس کارمزد خرید">
-                  <span>کارمزد خرید</span><svg data-sort-icon="buyFee" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-              </th>
               <th class="sell-column" scope="col" aria-sort="none">
                 <button class="sort-button" type="button" data-sort-key="sellPrice" aria-pressed="false" aria-label="مرتب‌سازی بر اساس بیشترین دریافتی مؤثر فروش">
                   <span>قیمت فروش</span><svg data-sort-icon="sellPrice" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </th>
+              <th class="fee-column" scope="col" aria-sort="none">
+                <button class="sort-button" type="button" data-sort-key="buyFee" aria-pressed="false" aria-label="مرتب‌سازی بر اساس کارمزد خرید">
+                  <span>کارمزد خرید</span><svg data-sort-icon="buyFee" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
               </th>
               <th class="fee-column" scope="col" aria-sort="none">
@@ -87,13 +96,14 @@
                   <span>اختلاف خرید و فروش</span><svg data-sort-icon="spread" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
               </th>
-              <th class="action-column" scope="col">عملیات</th>
             </tr>
           </thead>
           <tbody id="comparison-rows">
-            <tr><td class="py-8 text-center text-sm text-muted" colspan="7">در حال دریافت قیمت‌ها…</td></tr>
+            <tr><td class="py-8 text-center text-sm text-muted" colspan="6">در حال دریافت قیمت‌ها…</td></tr>
           </tbody>
         </table>
+        <!-- /\\ On narrow screens, remind the reader that more columns are available sideways. -->
+        <p class="table-scroll-hint" aria-hidden="true">برای دیدن ستون‌های بیشتر، جدول را به چپ و راست بکشید.</p>
       </div>
       <p class="border-t border-line px-4 py-3 text-xs leading-6 text-muted sm:px-5">اختلاف هر پلتفرم برابر است با هزینه مؤثر خرید هر گرم منهای دریافتی مؤثر فروش هر گرم. اگر کارمزد نامشخص باشد، مبلغ نهایی و اختلاف قابل محاسبه نیست.</p>
     </section>

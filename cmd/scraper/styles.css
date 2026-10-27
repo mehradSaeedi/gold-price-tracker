@@ -12,51 +12,87 @@ button, input, select { font: inherit; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #d0a74e; outline-offset: 2px; }
 #candle-chart { width: 100%; height: clamp(620px, 72vh, 820px); }
-.table-scroll { overflow-x: auto; overscroll-behavior-inline: contain; }
+.table-scroll { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-color: #454a52 #181a1f; scrollbar-width: thin; }
+.table-scroll::-webkit-scrollbar { height: 8px; }
+.table-scroll::-webkit-scrollbar-track { background: #181a1f; }
+.table-scroll::-webkit-scrollbar-thumb { border: 2px solid #181a1f; border-radius: 999px; background: #454a52; }
+.table-scroll-hint { display: none; }
 /* /\\ Give every value its own lane so long Persian fee estimates never collide with neighboring columns. */
 .comparison-table { width: 100%; min-width: 1480px; table-layout: auto; border-collapse: separate; border-spacing: 0; }
-.comparison-table th, .comparison-table td { border-bottom: 1px solid #2c2f35; padding: 15px 16px; vertical-align: middle; }
+.comparison-table.fees-hidden { width: min(100%, 1600px); margin-inline: auto; }
+.comparison-table th, .comparison-table td { border-bottom: 1px solid #2c2f35; padding: 10px 16px; vertical-align: middle; }
 .comparison-table th { position: sticky; top: 0; z-index: 1; background: #1d1f24; color: #a8abb2; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.comparison-table th.provider-column { text-align: right; }
+.comparison-table th[aria-sort] { text-align: center; }
+.comparison-table th[aria-sort] .sort-button { margin-inline: auto; padding-inline: 12px; }
 .comparison-table tbody tr { transition: background-color 160ms ease; }
-.comparison-table tbody tr:hover { background: #202329; }
+.comparison-table tbody tr:nth-child(even) { background: #191b20; }
+.comparison-table tbody tr:hover { background: #24272d; }
+.comparison-table tbody tr:focus-within { background: #282a30; }
 .comparison-table .provider-column { width: 18%; }
+/* /\\ Keep the provider label in view while the wide table scrolls sideways. */
+.comparison-table th.provider-column { position: sticky; right: 0; z-index: 3; background: #1d1f24; box-shadow: -5px 0 6px -6px #a8abb2; }
+.comparison-table td.provider-column { position: sticky; right: 0; z-index: 2; background: #181a1f; box-shadow: -5px 0 6px -6px #a8abb2; }
+.comparison-table tbody tr:nth-child(even) td.provider-column { background: #191b20; }
+.comparison-table tbody tr.stale-row td.provider-column { background: #28241b; }
+.comparison-table tbody tr:hover td.provider-column { background: #24272d; }
+.comparison-table tbody tr:focus-within td.provider-column { background: #282a30; }
 .comparison-table .buy-column, .comparison-table .sell-column { width: 17%; }
 .comparison-table .fee-column { width: 11%; }
+.comparison-table.fees-hidden .fee-column { display: none; }
 .comparison-table .spread-column { width: 15%; }
-.comparison-table .action-column { width: 12%; }
+.comparison-table td.spread-column { text-align: right; }
 .sort-button { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; border: 0; border-radius: 7px; background: transparent; padding: 5px 7px; color: inherit; cursor: pointer; font-weight: inherit; }
-.sort-button:hover, .sort-button[aria-pressed="true"] { background: #292c32; color: #e6c16d; }
+.sort-button:hover { background: #292c32; color: #e6c16d; }
+.sort-button[aria-pressed="true"], .sort-button[aria-pressed="true"]:hover { background: #262720; color: #e6c16d; }
 .sort-button svg { width: 13px; height: 13px; flex: none; visibility: hidden; }
-.sort-button[aria-pressed="true"] svg { visibility: visible; }
+.sort-button[aria-pressed="true"] svg { visibility: visible; color: #f1d17d; }
 .number { direction: rtl; unicode-bidi: isolate; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .provider-logo { width: 25px; height: 25px; border: 1px solid #34373e; border-radius: 50%; background: #f5f5f5; object-fit: contain; }
+/* /\\ Give the provider name a little more presence without changing the row layout. */
+.provider-name { font-size: 15px; font-weight: 600; }
+.provider-link { color: inherit; cursor: pointer; text-decoration: none; }
+.provider-link:hover { color: #f1d17d; text-decoration: underline; text-decoration-color: #857145; text-underline-offset: 3px; }
+.provider-chart-button { display: inline-flex; width: 32px; min-width: 32px; height: 32px; align-items: center; justify-content: center; flex: none; margin-inline-start: auto; border: 0; border-radius: 7px; background: transparent; padding: 0; color: #a8abb2; cursor: pointer; }
+.provider-chart-button:hover { background: #292c32; color: #e6c16d; }
+.provider-chart-button svg { width: 16px; height: 16px; }
 /* /\\ Make provenance and fee rules easy to find while keeping them quieter than the quote and final amount. */
 .source-detail, .fee-detail { display: block; margin-top: 4px; color: #898d96; font-size: 10px; font-weight: 400; line-height: 1.55; white-space: normal; }
-.fee-badge { display: inline-flex; max-width: 100%; align-items: center; border: 1px solid #353840; border-radius: 999px; background: #202228; padding: 5px 9px; color: #c2c4ca; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; }
+.fee-badge { display: inline-flex; max-width: 100%; align-items: center; border: 1px solid #454850; border-radius: 999px; background: #202228; padding: 5px 9px; color: #c2c4ca; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; }
+.fee-rate-inline { border-inline-start: 1px solid #454850; color: #898d96; font-size: 9px; font-weight: 500; margin-inline-start: 1px; padding-inline-start: 6px; }
 .fee-badge:focus-visible { outline: 3px solid #d0a74e; outline-offset: 2px; }
 .fee-badge.fee-unknown { border-style: dashed; color: #9a9da5; }
 .effective-line { display: block; margin-top: 5px; color: #a7a9b0; font-size: 11px; line-height: 1.6; white-space: normal; }
-.quote-line { display: block; color: #e9eaed; font-size: 14px; font-weight: 600; }
+.quote-line { display: block; color: #92959d; font-size: 11px; font-weight: 500; }
 .effective-price { display: block; color: #47c78b; font-size: 16px; font-weight: 750; line-height: 1.55; }
-.best-label { display: inline-flex; margin-inline-start: 5px; border: 1px solid #315a48; border-radius: 999px; background: #1d3229; padding: 2px 7px; color: #72d8a7; font-size: 10px; font-weight: 650; white-space: nowrap; }
-.movement-label { display: inline-block; margin-top: 3px; color: #a7a9b0; font-size: 10px; }
-.best-effective { background: #1b2b24 !important; }
+/* /\\ Keep the direction in the matching buy or sell cell, then fade its arrow and percentage after five seconds. */
+.movement-indicator { display: inline-flex; align-items: center; gap: 3px; margin-top: 4px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; animation: movement-fade 5s linear both; }
+.movement-up { color: #53cc94; }
+.movement-down { color: #ed8588; }
+@keyframes movement-fade { 0%, 65% { opacity: 1; } 100% { opacity: 0; } }
+.best-effective { background: #203027 !important; }
 .best-effective .effective-price { color: #66d99f; }
 .pending-row { color: #9a9da5; }
-.stale-row { background: #28241b; }
+.comparison-table tbody tr.stale-row { background: #28241b; }
+.stale-status { display: inline-flex; align-items: center; border-radius: 999px; background: #2b281f; padding: 2px 7px; color: #c2ac72; font-size: 10px; line-height: 1.45; }
 .spread-positive { color: #ed8588; }
 .spread-negative { color: #53cc94; }
 .row-action { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 5px; border: 1px solid #3a3d44; border-radius: 8px; background: #202228; padding: 6px 9px; color: #dadbe0; cursor: pointer; font-size: 11px; font-weight: 600; text-decoration: none; white-space: nowrap; }
 .row-action:hover { border-color: #857145; background: #292a2b; color: #f1d17d; }
+.row-action:active { background: #34302a; transform: translateY(1px); }
 .row-action svg { width: 15px; height: 15px; flex: none; }
-.decision-card { position: relative; overflow: hidden; }
+.decision-card { position: relative; overflow: hidden; border-color: #2f3238; }
+.decision-summary { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
 .decision-buy { border-inline-start: 3px solid #47c78b; }
 .decision-sell { border-inline-start: 3px solid #d0a74e; }
+.decision-opportunity { border-inline-start: 3px solid #8993a3; }
 .decision-buy .decision-amount { color: #47c78b; }
 .decision-sell .decision-amount { color: #e8c36d; }
+.decision-amount.opportunity-positive { color: #47c78b; }
+.decision-amount.opportunity-negative { color: #ed8588; }
 .quote-up { animation: quote-rise 900ms ease-out; }
 .quote-down { animation: quote-fall 900ms ease-out; }
 @keyframes quote-rise { from { background-color: #244b37; transform: translateY(4px); } to { background-color: transparent; transform: translateY(0); } }
 @keyframes quote-fall { from { background-color: #512b2e; transform: translateY(-4px); } to { background-color: transparent; transform: translateY(0); } }
-@media (max-width: 640px) { #candle-chart { height: 480px; } .comparison-table th, .comparison-table td { padding: 12px 10px; } .decision-amount { font-size: 1.3rem; } }
+@media (max-width: 640px) { #candle-chart { height: 480px; } .comparison-table th, .comparison-table td { padding: 12px 10px; } .decision-amount { font-size: 1.3rem; } .table-scroll-hint { display: block; border-top: 1px solid #2c2f35; padding: 8px 12px; color: #898d96; font-size: 11px; text-align: center; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }

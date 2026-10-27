@@ -1,6 +1,9 @@
     // /\ Use Persian digits for every price while comparing the original numeric values.
     const numberFormat = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 0 });
     const decimalNumberFormat = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 2 });
+    // /\ Keep small price moves visible as a useful percentage while formatting it with Persian digits.
+    const movementPercentFormat = new Intl.NumberFormat("fa-IR", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+    const movementDisplayMs = 5000;
     // /\ These links take users to each provider's trading site or official entry point.
     const providerTradeLinks = {
       "Milli": "https://milli.gold/app/",
@@ -496,6 +499,42 @@
         amount.textContent = formatToman(winnerAmount);
         detail.textContent = `برای ${decimalNumberFormat.format(grams)} گرم، ${side === "buy" ? "با احتساب" : "پس از کسر"} کارمزد`;
       }
+
+      // /\\ Compare the cheapest known-fee purchase with the highest known-fee sale as a current estimate.
+      const buyCandidates = prices.filter((price) => price.available && !price.stale && price.buy > 0 && feeKnown(price, "buy"));
+      const sellCandidates = prices.filter((price) => price.available && !price.stale && price.sell > 0 && feeKnown(price, "sell"));
+      buyCandidates.sort((a, b) => effectiveTotal(a, "buy", grams) - effectiveTotal(b, "buy", grams));
+      sellCandidates.sort((a, b) => effectiveTotal(b, "sell", grams) - effectiveTotal(a, "sell", grams));
+      const heading = document.getElementById("opportunity-heading");
+      const route = document.getElementById("opportunity-route");
+      const amount = document.getElementById("opportunity-amount");
+      const detail = document.getElementById("opportunity-detail");
+      amount.classList.remove("opportunity-positive", "opportunity-negative");
+      if (!buyCandidates.length || !sellCandidates.length) {
+        heading.textContent = "اختلاف احتمالی";
+        route.textContent = "در انتظار نرخ معتبر با کارمزد مشخص";
+        amount.textContent = "—";
+        detail.textContent = "برای محاسبه، نرخ خرید و فروش تازه با کارمزد مشخص لازم است.";
+      } else {
+        const buyProvider = buyCandidates[0];
+        const sellProvider = sellCandidates[0];
+        const estimatedDifference = effectiveTotal(sellProvider, "sell", grams) - effectiveTotal(buyProvider, "buy", grams);
+        const roundedDifference = Math.round(estimatedDifference);
+        route.textContent = `خرید از ${displayProviderName(buyProvider.site)} · فروش به ${displayProviderName(sellProvider.site)}`;
+        if (roundedDifference > 0) {
+          heading.textContent = "سود احتمالی";
+          amount.classList.add("opportunity-positive");
+          amount.textContent = `+ ${formatToman(roundedDifference)}`;
+        } else if (roundedDifference < 0) {
+          heading.textContent = "زیان احتمالی";
+          amount.classList.add("opportunity-negative");
+          amount.textContent = `− ${formatToman(Math.abs(roundedDifference))}`;
+        } else {
+          heading.textContent = "اختلاف خالص";
+          amount.textContent = formatToman(0);
+        }
+        detail.textContent = `برآورد ${decimalNumberFormat.format(grams)} گرم پس از کارمزدهای شناخته‌شده؛ بدون هزینه انتقال و محدودیت سفارش`;
+      }
     }
 
     // /\ Show the amount charged by the known percentage and fixed fee without applying it to the quote again.
@@ -548,7 +587,15 @@
         badge.textContent = "نامشخص";
         badge.title = "مقدار کارمزد از منبع در دسترس نیست.";
       } else {
-        badge.textContent = formatToman(actualFeeAmount(price, side, grams));
+        const amount = document.createElement("span");
+        amount.textContent = formatToman(actualFeeAmount(price, side, grams));
+        badge.append(amount);
+        if (fee.rate > 0) {
+          const rate = document.createElement("span");
+          rate.className = "fee-rate-inline";
+          rate.textContent = `${decimalNumberFormat.format(fee.rate * 100)}٪`;
+          badge.append(rate);
+        }
         const parts = [];
         if (fee.rate) parts.push(`${decimalNumberFormat.format(fee.rate * 100)}٪`);
         if (fee.fixedToman) parts.push(formatToman(fee.fixedToman));
@@ -558,15 +605,14 @@
       return badge;
     }
 
-    // /\\ Keep the fee rate and any fixed charge visible under the amount badge, including fees already built into the quote.
+    // /\\ Keep only extra fee details here; the percentage rate already sits beside the calculated amount above.
     function feeRateDetail(price, side) {
       const fee = feeFor(price, side);
-      if (!fee) return "جزئیات تعرفه نامشخص";
-      const parts = [];
-      if (fee.rate) parts.push(`${decimalNumberFormat.format(fee.rate * 100)}٪`);
-      if (fee.fixedToman) parts.push(`${formatToman(fee.fixedToman)} ثابت`);
-      if (!parts.length) return price.feeIncludedInPrice ? "کارمزد در نرخ اعلامی منظور شده" : "بدون کارمزد";
-      return `تعرفه ${parts.join(" + ")}${price.feeIncludedInPrice ? " · در نرخ منظور شده" : ""}`;
+      if (!fee) return "جزئیات کارمزد نامشخص";
+      if (fee.fixedToman) return `${formatToman(fee.fixedToman)} ثابت`;
+      if (price.feeIncludedInPrice) return "کارمزد در نرخ اعلامی منظور شده";
+      if (fee.rate) return "";
+      return "بدون کارمزد";
     }
 
     // /\ Keep unavailable or unknown values after numeric values in either sort direction.
@@ -632,8 +678,9 @@
         if (price.stale) row.classList.add("stale-row");
 
         const providerCell = document.createElement("td");
+        providerCell.className = "provider-column";
         const provider = document.createElement("div");
-        provider.className = "flex items-center gap-2 font-semibold";
+        provider.className = "flex w-full items-center gap-2 font-semibold";
         const tradeURL = providerTradeLinks[price.site];
         if (tradeURL) {
           const favicon = document.createElement("img");
@@ -645,9 +692,25 @@
           favicon.addEventListener("error", () => favicon.remove(), { once: true });
           provider.append(favicon);
         }
-        const providerName = document.createElement("span");
+        const providerName = document.createElement(tradeURL ? "a" : "span");
+        providerName.className = tradeURL ? "provider-name provider-link" : "provider-name";
+        if (tradeURL) {
+          providerName.href = tradeURL;
+          providerName.target = "_blank";
+          providerName.rel = "noopener noreferrer";
+          providerName.title = `ورود به وب‌سایت ${displayProviderName(price.site)} در زبانه جدید`;
+          providerName.setAttribute("aria-label", `ورود به وب‌سایت ${displayProviderName(price.site)}`);
+        }
         providerName.textContent = displayProviderName(price.site);
         provider.append(providerName);
+        const chartButton = document.createElement("button");
+        chartButton.type = "button";
+        chartButton.className = "provider-chart-button";
+        chartButton.dataset.chartProvider = price.site;
+        chartButton.title = `نمایش نمودار ${displayProviderName(price.site)}`;
+        chartButton.setAttribute("aria-label", `نمایش نمودار ${displayProviderName(price.site)}`);
+        chartButton.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 15.5 7.2 11l3 2.4 6.8-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.8 5.4H17v4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        provider.append(chartButton);
         providerCell.append(provider);
         const source = document.createElement("span");
         source.className = "source-detail";
@@ -655,38 +718,44 @@
         providerCell.append(source);
         if (price.stale) {
           const status = document.createElement("span");
-          status.className = "mt-1 block text-xs font-normal text-muted";
+          status.className = "mt-1 block text-xs font-normal text-muted stale-status";
           status.textContent = "داده قدیمی";
           providerCell.append(status);
         }
         row.append(providerCell);
 
+        const feeCells = [];
         for (const side of ["buy", "sell"]) {
           const priceCell = document.createElement("td");
           const quote = document.createElement("span");
           quote.className = "quote-line number";
           quote.textContent = usableQuote ? formatToman(price[side]) : "—";
           const movement = quoteMovements.get(`${price.site}:${side}`);
-          if (movement?.direction && Date.now() - movement.changedAt < 1400) quote.classList.add(`quote-${movement.direction}`);
+          const movementAge = movement?.changedAt ? Date.now() - movement.changedAt : movementDisplayMs;
+          const movementVisible = movement?.direction && movementAge < movementDisplayMs;
+          if (movementVisible) quote.classList.add(`quote-${movement.direction}`);
           priceCell.append(quote);
-          if (movement?.direction) {
-            const movementLabel = document.createElement("span");
-            movementLabel.className = "movement-label";
-            movementLabel.textContent = movement.direction === "up" ? "↑ افزایش" : "↓ کاهش";
-            priceCell.append(movementLabel);
+          if (movementVisible) {
+            const movementIndicator = document.createElement("span");
+            movementIndicator.className = `movement-indicator movement-${movement.direction}`;
+            movementIndicator.style.animationDelay = `-${movementAge}ms`;
+            const arrow = movement.direction === "up" ? "↑" : "↓";
+            const percent = movementPercentFormat.format(Math.abs(movement.changePercent));
+            movementIndicator.textContent = `${arrow} ${percent}٪`;
+            const sideLabel = side === "buy" ? "خرید" : "فروش";
+            const directionLabel = movement.direction === "up" ? "افزایش" : "کاهش";
+            movementIndicator.title = `قیمت ${sideLabel} ${percent}٪ ${directionLabel} یافت`;
+            movementIndicator.setAttribute("aria-label", movementIndicator.title);
+            priceCell.append(movementIndicator);
           }
           const effectiveValue = usableQuote && feeKnown(price, side) ? effectiveTotal(price, side, grams) : null;
           const effectiveText = document.createElement("span");
           const feeSide = side === "buy" ? "buy" : "sell";
           if (effectiveValue != null) {
             effectiveText.className = "effective-line effective-price number";
-            effectiveText.textContent = `${formatToman(effectiveValue)} · سفارش ${decimalNumberFormat.format(grams)} گرم`;
+            effectiveText.textContent = formatToman(effectiveValue);
             if (!price.stale && (side === "buy" ? effectiveValue === bestBuy : effectiveValue === bestSell)) {
               priceCell.classList.add("best-effective");
-              const bestLabel = document.createElement("span");
-              bestLabel.className = "best-label";
-              bestLabel.textContent = side === "buy" ? "کمترین مبلغ خرید" : "بیشترین مبلغ دریافتی";
-              effectiveText.append(bestLabel);
             }
           } else {
             effectiveText.className = "effective-line";
@@ -696,12 +765,16 @@
           row.append(priceCell);
 
           const feeCell = document.createElement("td");
+          feeCell.className = "fee-column";
           if (usableQuote) {
             feeCell.append(feeBadge(price, feeSide, grams));
-            const feeDetail = document.createElement("span");
-            feeDetail.className = "fee-detail";
-            feeDetail.textContent = feeRateDetail(price, feeSide);
-            feeCell.append(feeDetail);
+            const detail = feeRateDetail(price, feeSide);
+            if (detail) {
+              const feeDetail = document.createElement("span");
+              feeDetail.className = "fee-detail";
+              feeDetail.textContent = detail;
+              feeCell.append(feeDetail);
+            }
           }
           else {
             const unknown = document.createElement("span");
@@ -710,48 +783,25 @@
             feeCell.append(unknown);
             const feeDetail = document.createElement("span");
             feeDetail.className = "fee-detail";
-            feeDetail.textContent = "جزئیات تعرفه نامشخص";
+            feeDetail.textContent = "جزئیات کارمزد نامشخص";
             feeCell.append(feeDetail);
           }
-          row.append(feeCell);
+          feeCells.push(feeCell);
         }
+        row.append(...feeCells);
 
         const spreadCell = document.createElement("td");
+        spreadCell.className = "spread-column";
         const spread = usableQuote && !price.stale ? effectiveSpread(price, grams) : null;
         if (spread == null) {
           spreadCell.textContent = "—";
-          spreadCell.className = "text-muted";
+          spreadCell.classList.add("text-muted");
         } else {
-          spreadCell.className = `number ${spread < 0 ? "spread-negative" : "spread-positive"}`;
-          spreadCell.textContent = formatToman(spread, 2);
-          const spreadHelp = document.createElement("span");
-          spreadHelp.className = "effective-line";
-          spreadHelp.textContent = "هر گرم · خرید مؤثر − فروش مؤثر";
-          spreadCell.append(spreadHelp);
+          spreadCell.classList.add("number", spread < 0 ? "spread-negative" : "spread-positive");
+          spreadCell.textContent = formatToman(spread);
         }
         row.append(spreadCell);
 
-        const actionCell = document.createElement("td");
-        const chartButton = document.createElement("button");
-        chartButton.type = "button";
-        chartButton.className = "row-action";
-        chartButton.dataset.chartProvider = price.site;
-        chartButton.title = `نمایش نمودار ${displayProviderName(price.site)}`;
-        chartButton.setAttribute("aria-label", `نمایش نمودار ${displayProviderName(price.site)}`);
-        chartButton.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 15.5 7.2 11l3 2.4 6.8-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.8 5.4H17v4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>نمودار</span>';
-        actionCell.append(chartButton);
-        if (tradeURL) {
-          const tradeLink = document.createElement("a");
-          tradeLink.className = "row-action ms-1";
-          tradeLink.href = tradeURL;
-          tradeLink.target = "_blank";
-          tradeLink.rel = "noopener noreferrer";
-          tradeLink.title = `ورود به وب‌سایت ${displayProviderName(price.site)} در زبانه جدید`;
-          tradeLink.setAttribute("aria-label", `ورود به وب‌سایت ${displayProviderName(price.site)}`);
-          tradeLink.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 11v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>وب‌سایت</span>';
-          actionCell.append(tradeLink);
-        }
-        row.append(actionCell);
         return row;
       }));
     }
@@ -774,6 +824,7 @@
               quoteMovements.set(key, {
                 value: price[side],
                 direction: price[side] > previous.value ? "up" : "down",
+                changePercent: ((price[side] - previous.value) / previous.value) * 100,
                 changedAt: Date.now(),
               });
             }
@@ -794,6 +845,15 @@
     setInterval(refreshPrices, 5000);
     document.getElementById("grams").addEventListener("input", refreshPrices);
     document.getElementById("grams").addEventListener("change", syncChartSymbol);
+    // /\\ Keep both fee columns hidden initially and let the reader reveal or hide them together.
+    document.getElementById("fee-columns-toggle").addEventListener("click", (event) => {
+      const button = event.currentTarget;
+      const table = document.getElementById("comparison-table");
+      const showFees = table.classList.contains("fees-hidden");
+      table.classList.toggle("fees-hidden", !showFees);
+      button.setAttribute("aria-expanded", String(showFees));
+      button.textContent = showFees ? "پنهان‌کردن کارمزدها" : "نمایش کارمزدها";
+    });
     // /\ Let keyboard and mouse users sort by the real numeric values behind each displayed price or fee.
     document.querySelectorAll("button[data-sort-key]").forEach((button) => {
       button.addEventListener("click", () => chooseSort(button.dataset.sortKey));

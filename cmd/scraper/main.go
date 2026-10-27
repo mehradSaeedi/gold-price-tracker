@@ -182,7 +182,7 @@ func main() {
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
-		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Digi Gold", "Zarpin", "Daric", "Zarafza", "Zarpay", "Zarpin",
+		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Digi Gold", "Daric", "Zarafza", "Zarpay", "Zarpin",
 	})
 
 	fetchers := []struct {

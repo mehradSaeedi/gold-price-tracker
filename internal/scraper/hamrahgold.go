@@ -149,12 +149,12 @@ func parseHamrahPrice(msg hamrahMessage) (Price, bool, error) {
 			return Price{}, false, fmt.Errorf("invalid sell price: %w", err)
 		}
 		return Price{
-			Site: "Hamrahgold",
-			Buy:  buy / 10,
-			Sell: sell / 10,
-			// /\ HamrahGold advertises no transaction commission.
+			Site:    "Hamrahgold",
+			Buy:     sell / 10,
+			Sell:    buy / 10,
 			BuyFee:  &Fee{},
 			SellFee: &Fee{},
+			// /\ HamrahGold advertises no transaction commission.
 		}, true, nil
 	}
 	return Price{}, false, nil
