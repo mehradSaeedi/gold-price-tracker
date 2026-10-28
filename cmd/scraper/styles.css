@@ -23,8 +23,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .comparison-table th, .comparison-table td { border-bottom: 1px solid #2c2f35; padding: 10px 16px; vertical-align: middle; }
 .comparison-table th { position: sticky; top: 0; z-index: 1; background: #1d1f24; color: #a8abb2; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .comparison-table th.provider-column { text-align: right; }
-.comparison-table th[aria-sort] { text-align: center; }
-.comparison-table th[aria-sort] .sort-button { margin-inline: auto; padding-inline: 12px; }
+.comparison-table th[aria-sort] { text-align: right; }
+.comparison-table th[aria-sort] .sort-button { margin-inline-start: -14px; margin-inline-end: 0; padding-inline: 14px; border-radius: 9px; }
 .comparison-table tbody tr { transition: background-color 160ms ease; }
 .comparison-table tbody tr:nth-child(even) { background: #191b20; }
 .comparison-table tbody tr:hover { background: #24272d; }
