@@ -1,6 +1,9 @@
 package scraper
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+)
 
 // /\ Tapsi Gold is backed by MelliGold and uses the same public price endpoint.
 type TapsiScraper struct {
@@ -10,7 +13,7 @@ type TapsiScraper struct {
 func (s TapsiScraper) GetPrice() (Price, error) {
 	price, err := (MelligoldScraper{Client: s.Client}).GetPrice()
 	if err != nil {
-		return (ZarScopeScraper{Client: s.Client, Slug: "tapsi", Site: "TapsiGold"}).GetPrice()
+		return Price{}, fmt.Errorf("Could net get prices: %w", err)
 	}
 	price.Site = "TapsiGold"
 	if price.Source == "" {

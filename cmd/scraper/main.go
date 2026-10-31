@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -120,21 +119,12 @@ func recordPrice(price scraper.Price, store *priceStore, database *storage.Postg
 
 // /\ Refresh one site's price in the background and save each accepted result.
 func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, database *storage.Postgres) {
-	var lastNoQuoteLog time.Time
 	refresh := func() {
 		price, err := fetcher.GetPrice()
 		if err != nil {
-			if errors.Is(err, scraper.ErrNoCurrentQuote) {
-				if lastNoQuoteLog.IsZero() || time.Since(lastNoQuoteLog) >= 5*time.Minute {
-					log.Printf("%s has no fresh quote from Zarscope; the source is marked stale", name)
-					lastNoQuoteLog = time.Now()
-				}
-				return
-			}
 			log.Printf("%s price update failed: %v", name, err)
 			return
 		}
-		lastNoQuoteLog = time.Time{}
 		if price.Source == "" {
 			price.Source = source
 		}
@@ -182,7 +172,7 @@ func main() {
 	// /\ Keep every configured site visible before its first request succeeds.
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
-		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Digi Gold", "Daric", "Zarafza", "Zarpay", "Zarpin",
+		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Daric", "Zarafza", "Zarpay", "Zarpin",
 	})
 
 	fetchers := []struct {
@@ -197,18 +187,14 @@ func main() {
 		{"Goldika", "Goldika public API", scraper.GoldikaScraper{Client: client}},
 		{"Talasea", "Talasea public API", scraper.TalaseaScraper{Client: client}},
 		{"Taline", "Taline website", scraper.TalineScraper{Client: client}},
-		{"MelliGold", "MelliGold API or Zarscope fallback", scraper.MelligoldScraper{Client: client}},
-		{"TapsiGold", "MelliGold API or Zarscope fallback", scraper.TapsiScraper{Client: client}},
+		{"MelliGold", "MelliGold API", scraper.MelligoldScraper{Client: client}},
+		{"TapsiGold", "MelliGold API", scraper.TapsiScraper{Client: client}},
 		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", scraper.SnappSarmayehScraper{Client: client}},
 		{"Daric", "Daric public API", scraper.DaricScraper{Client: client}},
 		{"Zarafza", "Zarafza public API", scraper.ZarafzaScraper{Client: client}},
 		{"Zarpay", "Zarpay public API", scraper.ZarpayScraper{Client: client}},
 		{"Zarpin", "Zarpin public API", scraper.ZarpinScraper{Client: client}},
 		{"Gerami", "Gerami public API", scraper.GeramiScraper{Client: client}},
-		// /\ Keep Zarscope only as a fallback for providers without a direct scraper.
-		// {"Daric", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "daric", Site: "Daric"}},
-		{"Digi Gold", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "digigold", Site: "Digi Gold"}},
-		// {"Zarpin", "Zarscope public feed", scraper.ZarScopeScraper{Client: client, Slug: "zarpin", Site: "Zarpin"}},
 	}
 	for _, item := range fetchers {
 		go pollPrices(item.name, item.source, item.fetcher, store, database)
