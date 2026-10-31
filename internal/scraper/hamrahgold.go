@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -45,7 +46,15 @@ func (s *HamrahScraper) Start(prices chan<- Price) error {
 	// HamrahGold app domain, so identify this connection as coming from there.
 	header := http.Header{}
 	header.Set("Origin", "https://pwa.hamrahgold.com")
-	conn, _, err := websocket.DefaultDialer.Dial(s.URI, header)
+
+	// Temporarily bypass TLS certificate verification.
+	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	// conn, _, err := websocket.DefaultDialer.Dial(s.URI, header)
+	conn, _, err := dialer.Dial(s.URI, header)
 	if err != nil {
 		return fmt.Errorf("HamrahGold WebSocket dial failed: %w", err)
 	}
