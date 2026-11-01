@@ -103,6 +103,10 @@
     let chartInitialized = false;
     let widgetReady = false;
     let displayedSymbol = "";
+    const comparisonStudies = new Map();
+    let comparisonSyncVersion = 0;
+    let chartTypeBeforeComparison = null;
+    let priceScaleModeBeforeComparison = null;
     const savedChartsKey = "gold-price-tracker:tradingview-charts:v1";
     const savedStudiesKey = "gold-price-tracker:tradingview-studies:v1";
 
@@ -125,11 +129,6 @@
       throw new Error("بازه زمانی نمودار پشتیبانی نمی‌شود.");
     }
 
-    // /\ Show the chart's API interval with a Persian label in the page status.
-    function displayInterval(interval) {
-      return ({ "1m": "۱ دقیقه", "5m": "۵ دقیقه", "15m": "۱۵ دقیقه", "1h": "۱ ساعت", "1d": "۱ روز" })[interval] || interval;
-    }
-
     // /\ Map the selected controls to a distinct symbol so changing site or fee side reloads the chart.
     function selectedSymbol() {
       const { site, side, grams } = chartSelection();
@@ -140,12 +139,12 @@
 
     // /\ Saved chart names carry the selected series, so reopening a layout restores its site and fee side too.
     function selectionForSymbol(symbolName) {
-      const internalMatch = /^GPT_(.+)_(BUY|SELL)_([0-9]+(?:\.[0-9]+)?)$/i.exec(symbolName || "");
+      const internalMatch = /^GP(T|C)_(.+)_(BUY|SELL)_([0-9]+(?:\.[0-9]+)?)$/i.exec(symbolName || "");
       if (internalMatch) {
         const site = Object.keys(providerDisplayNames).find((name) =>
-          name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "") === internalMatch[1].toUpperCase(),
+          name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "") === internalMatch[2].toUpperCase(),
         );
-        if (site) return { site, side: internalMatch[2].toLowerCase(), grams: Number(internalMatch[3]) };
+        if (site) return { site, side: internalMatch[3].toLowerCase(), grams: Number(internalMatch[4]), comparison: internalMatch[1].toUpperCase() === "C" };
       }
       const match = /^(.*) · (خرید|فروش|buy|sell) · ([0-9۰-۹٠-٩.٫٬,]+)(?: گرم|g)$/.exec(symbolName || "");
       if (!match) return chartSelection();
@@ -242,15 +241,18 @@
         callback([]);
       },
       resolveSymbol(symbolName, onResolve) {
-        const { site, side, grams } = selectionForSymbol(symbolName);
+        const selection = selectionForSymbol(symbolName);
+        const { site, side, grams } = selection;
         if (!site) {
           document.getElementById("chart-status").textContent = "برای نمایش نمودار، ابتدا دریافت قیمت یک ارائه‌دهنده را منتظر بمانید.";
           return;
         }
-        const siteSelect = document.getElementById("chart-site");
-        if ([...siteSelect.options].some((option) => option.value === site)) siteSelect.value = site;
-        document.getElementById("chart-side").value = side;
-        document.getElementById("grams").value = String(grams);
+        if (!selection.comparison) {
+          const siteSelect = document.getElementById("chart-site");
+          if ([...siteSelect.options].some((option) => option.value === site)) siteSelect.value = site;
+          document.getElementById("chart-side").value = side;
+          document.getElementById("grams").value = String(grams);
+        }
         setTimeout(() => onResolve({
           name: site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"}` : "قیمت طلا",
           full_name: site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"} · ${decimalNumberFormat.format(grams)} گرم` : "قیمت طلا",
@@ -297,7 +299,7 @@
           return;
         }
         try {
-          let { bars, candles, interval } = await loadBars(
+          let { bars } = await loadBars(
             selection, resolution, from, to, maxHistoryBarsPerRequest,
           );
           const requiredBars = Number.isFinite(countBack)
@@ -309,28 +311,13 @@
             const earlier = await loadBars(selection, resolution, null, from, missingBars);
             const firstRequestedTime = bars.length ? bars[0].time : Infinity;
             const earlierBars = earlier.bars.filter((bar) => bar.time < firstRequestedTime);
-            const earlierCandles = earlier.candles.filter(
-              (candle) => Date.parse(candle.timestamp) < firstRequestedTime,
-            );
             bars = [...earlierBars, ...bars];
-            candles = [...earlierCandles, ...candles];
           }
-          let loadedRecentFallback = false;
           if (isFirstCall && bars.length === 0) {
-            ({ bars, candles, interval } = await loadBars(selection, resolution, null, null));
-            loadedRecentFallback = bars.length > 0;
+            ({ bars } = await loadBars(selection, resolution, null, null));
           }
-          const feeField = `${selection.side}FeesKnown`;
-          const notices = [];
-          if (loadedRecentFallback) notices.push("آخرین کندل‌های ذخیره‌شده خارج از بازه درخواستی نمایش داده می‌شوند");
-          if (candles.length && !candles.every((candle) => candle[feeField])) notices.push("برای برخی داده‌ها کارمزد نامشخص است و نرخ خام نمایش داده می‌شود");
-          const noticeText = notices.length ? ` · ${notices.join(" · ")}` : "";
-          document.getElementById("chart-status").textContent = bars.length
-            ? `${displayProviderName(selection.site)} · ${selection.side === "buy" ? "خرید" : "فروش"} · ${displayInterval(interval)} · سفارش ${decimalNumberFormat.format(selection.grams)} گرم · ${numberFormat.format(bars.length)} کندل · به وقت تهران${noticeText}`
-            : `برای ${displayProviderName(selection.site)} در بازه ${displayInterval(interval)} کندلی ذخیره نشده است.${noticeText}`;
           onResult(bars, { noData: bars.length === 0 });
         } catch (error) {
-          document.getElementById("chart-status").textContent = error.message || "دریافت کندل‌ها ناموفق بود.";
           onError(error.message || "دریافت داده‌های نمودار ناموفق بود.");
         }
       },
@@ -344,8 +331,8 @@
           try {
             const { bars } = await loadBars(selection, resolution, now - intervalSeconds * 3, now + intervalSeconds, 1);
             if (bars.length) onTick(bars[bars.length - 1]);
-          } catch (error) {
-            document.getElementById("chart-status").textContent = "به‌روزرسانی زنده نمودار ناموفق بود.";
+          } catch (_) {
+            // Live refresh failures are transient; don't replace the chart with noisy status text.
           }
         };
         const timer = setInterval(refresh, 30000);
@@ -386,7 +373,7 @@
         theme: "dark",
         // / Show the drawing toolbar in fullscreen, and leave the rest of the library features at their defaults.
         enabled_features: ["side_toolbar_in_fullscreen_mode"],
-        // / Hide unsupported search/compare controls and the default volume pane; our count is not traded volume.
+        // /\ Hide TradingView search controls; provider comparisons use the dashboard's site picker.
         disabled_features: ["header_symbol_search", "header_compare", "create_volume_indicator_by_default"],
         // / Put commonly used drawing and measuring tools on the chart for one-click access.
         favorites: {
@@ -424,16 +411,81 @@
     function syncChartSymbol() {
       if (!widgetReady) return;
       const symbol = selectedSymbol();
-      if (!chartSelection().site || !symbol || symbol === displayedSymbol) return;
+      if (!chartSelection().site || !symbol) return;
+      if (symbol === displayedSymbol) {
+        syncComparisonStudies();
+        return;
+      }
       displayedSymbol = symbol;
-      widget.activeChart().setSymbol(symbol, () => {});
+      comparisonSyncVersion += 1;
+      for (const id of comparisonStudies.values()) {
+        try { widget.activeChart().removeEntity(id); } catch (_) {}
+      }
+      comparisonStudies.clear();
+      widget.activeChart().setSymbol(symbol, () => syncComparisonStudies());
+    }
+
+    async function syncComparisonStudies() {
+      if (!widgetReady) return;
+      const version = ++comparisonSyncVersion;
+      const chart = widget.activeChart();
+      const primary = chartSelection().site;
+      const sites = [...new Set([primary, ...[...document.querySelectorAll("#chart-sites input:checked")].map((input) => input.value)])].filter(Boolean);
+      const { side, grams } = chartSelection();
+      const extraSites = new Set(sites.filter((site) => site !== sites[0]));
+      if (extraSites.size) {
+        if (chartTypeBeforeComparison === null) chartTypeBeforeComparison = chart.chartType();
+        const priceScale = chart.getPanes()[0]?.getMainSourcePriceScale();
+        if (priceScaleModeBeforeComparison === null && priceScale) priceScaleModeBeforeComparison = priceScale.getMode();
+        if (chart.chartType() !== 2) await chart.setChartType(2);
+      } else if (chartTypeBeforeComparison !== null) {
+        const previousChartType = chartTypeBeforeComparison;
+        chartTypeBeforeComparison = null;
+        if (chart.chartType() !== previousChartType) await chart.setChartType(previousChartType);
+      }
+      if (version !== comparisonSyncVersion) return;
+      for (const [site, studyId] of [...comparisonStudies]) {
+        if (extraSites.has(site)) continue;
+        try { chart.removeEntity(studyId); } catch (_) {}
+        comparisonStudies.delete(site);
+      }
+      for (const site of extraSites) {
+        if (version !== comparisonSyncVersion) return;
+        if (comparisonStudies.has(site)) continue;
+        const siteKey = site.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+        const symbol = `GPC_${siteKey}_${side.toUpperCase()}_${grams}`;
+        const priceScale = chart.getPanes()[0]?.getMainSourcePriceScale();
+        const priceScaleMode = priceScale?.getMode();
+        try {
+          const studyId = await chart.createStudy("Compare", true, false, { source: "close", symbol });
+          if (version !== comparisonSyncVersion) {
+            if (studyId) chart.removeEntity(studyId);
+            return;
+          }
+          if (studyId) comparisonStudies.set(site, studyId);
+          // TradingView forces percentage mode when a Compare study is added. Restore the user's current mode
+          // immediately, but leave later manual scale changes alone during routine chart refreshes.
+          if (priceScale && priceScaleMode !== undefined && priceScale.getMode() !== priceScaleMode) {
+            priceScale.setMode(priceScaleMode);
+          }
+        } catch (_) {
+          document.getElementById("chart-status").textContent = `افزودن ${displayProviderName(site)} به نمودار ناموفق بود.`;
+        }
+      }
+      const priceScale = chart.getPanes()[0]?.getMainSourcePriceScale();
+      if (!extraSites.size && priceScaleModeBeforeComparison !== null) {
+        if (priceScale && priceScale.getMode() !== priceScaleModeBeforeComparison) priceScale.setMode(priceScaleModeBeforeComparison);
+        priceScaleModeBeforeComparison = null;
+      }
     }
 
     // /\ Keep the site's dropdown in sync with providers known to the existing live-price API.
     function updateChartSites(prices) {
       const select = document.getElementById("chart-site");
+      const host = document.getElementById("chart-sites");
       const sites = [...new Set(prices.map((price) => price.site).filter(Boolean))].sort();
       const previous = select.value;
+      const previousSelection = new Set([...host.querySelectorAll("input:checked")].map((input) => input.value));
       if (!sites.length) return;
       select.replaceChildren(...sites.map((site) => {
         const option = document.createElement("option");
@@ -444,9 +496,46 @@
       select.disabled = false;
       if (sites.includes(previous)) select.value = previous;
       else select.value = sites[0];
+      host.replaceChildren(...sites.map((site) => {
+        const label = document.createElement("label");
+        label.className = "chart-site-option";
+        const input = document.createElement("input");
+        input.type = "checkbox"; input.value = site; input.checked = previousSelection.has(site);
+        input.addEventListener("change", () => {
+          syncChartSymbol();
+        });
+        const name = document.createElement("span"); name.textContent = displayProviderName(site);
+        label.append(input, name); return label;
+      }));
+      const availableSelections = new Set([...host.querySelectorAll("input:checked")].map((input) => input.value));
+      const count = availableSelections.size;
+      document.getElementById("chart-compare-count").textContent = count ? `${count}` : "";
+      document.getElementById("chart-compare-trigger").setAttribute("aria-label", count ? `مقایسه سایت‌ها، ${count} سایت انتخاب شده` : "مقایسه سایت‌ها");
       if (!chartInitialized) initializeChart();
       else syncChartSymbol();
     }
+
+    // /\ Keep comparison controls out of the way until the reader chooses to compare sites.
+    const compareTrigger = document.getElementById("chart-compare-trigger");
+    const compareMenu = document.getElementById("chart-compare-menu");
+    function setCompareMenuOpen(open) {
+      compareMenu.hidden = !open;
+      compareTrigger.setAttribute("aria-expanded", String(open));
+    }
+    compareTrigger.addEventListener("click", () => setCompareMenuOpen(compareMenu.hidden));
+    document.getElementById("chart-compare-close").addEventListener("click", () => {
+      setCompareMenuOpen(false);
+      compareTrigger.focus();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!event.target.closest(".chart-compare-wrap")) setCompareMenuOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !compareMenu.hidden) {
+        setCompareMenuOpen(false);
+        compareTrigger.focus();
+      }
+    });
 
     // /\ Return the known fee object; a nil value must stay unknown instead of silently becoming zero.
     function feeFor(price, side) {

@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#101114">
   <title>پایش قیمت طلا</title>
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/chart-overlays.css">
 </head>
 <body class="min-h-screen bg-paper text-ink antialiased">
   <main class="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 lg:px-8">
@@ -106,17 +107,28 @@
       <p class="border-t border-line px-4 py-3 text-xs leading-6 text-muted sm:px-5">اختلاف هر پلتفرم برابر است با هزینه مؤثر خرید هر گرم منهای دریافتی مؤثر فروش هر گرم. اگر کارمزد نامشخص باشد، مبلغ نهایی و اختلاف قابل محاسبه نیست.</p>
     </section>
 
-    <!-- /\ The chart remains the existing TradingView Advanced Charts widget and uses the provider selection below. -->
+    <!-- /\ The chart can overlay additional providers as candle studies. -->
     <section id="chart-panel" class="mt-6 overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" aria-labelledby="chart-title">
       <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-4 py-4 sm:px-5">
         <div>
           <h2 id="chart-title" class="text-lg font-bold">نمودار قیمت</h2>
-          <p id="chart-status" class="mt-1 text-xs text-muted" role="status" aria-live="polite">در انتظار دریافت داده‌های نمودار…</p>
+          <p id="chart-status" class="sr-only" role="status" aria-live="polite"></p>
         </div>
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap items-end gap-3">
           <label class="grid gap-1 text-xs font-semibold text-muted" for="chart-site">ارائه‌دهنده
             <select id="chart-site" class="min-w-[9rem] rounded-lg border border-line bg-panel px-3 py-2 text-ink" disabled><option>در حال بارگذاری…</option></select>
           </label>
+          <div class="chart-compare-wrap">
+            <button id="chart-compare-trigger" class="chart-compare-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="chart-compare-menu">
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 15V9m5 6V5m5 10v-4m4 4V7M2 17h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>مقایسه</span><span id="chart-compare-count" class="chart-compare-count" aria-hidden="true"></span>
+            </button>
+            <div id="chart-compare-menu" class="chart-compare-menu" hidden>
+              <div class="chart-compare-heading"><span>سایت‌های مقایسه</span><button id="chart-compare-close" type="button" aria-label="بستن">×</button></div>
+              <p>سایت‌های دلخواه را برای نمایش کندل‌ها کنار هم انتخاب کنید.</p>
+              <div id="chart-sites" aria-label="سایت‌های نمودار"></div>
+            </div>
+          </div>
           <label class="grid gap-1 text-xs font-semibold text-muted" for="chart-side">نوع قیمت
             <select id="chart-side" class="min-w-[7rem] rounded-lg border border-line bg-panel px-3 py-2 text-ink"><option value="buy">خرید</option><option value="sell">فروش</option></select>
           </label>
