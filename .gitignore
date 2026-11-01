@@ -32,6 +32,14 @@
 !.env.example
 !.env.sample
 
+# Rotating Snapp OAuth credentials (SNAPP_TOKEN_FILE state)
+snapp-token*.json
+snapp-tokens*.json
+snapp_token*.json
+snapp_tokens*.json
+.snapp-token*.json
+.snapp-tokens*.json
+
 # Local databases and runtime state
 *.db
 *.sqlite

@@ -16,6 +16,9 @@ type Price struct {
 	BuyFee             *Fee       `json:"buyFee,omitempty"`
 	SellFee            *Fee       `json:"sellFee,omitempty"`
 	FeeIncludedInPrice bool       `json:"feeIncludedInPrice,omitempty"`
+	Change24h          float64    `json:"change24h,omitempty"`
+	UnitType           string     `json:"unitType,omitempty"`
+	SourceUnitType     string     `json:"sourceUnitType,omitempty"`
 	Timestamp          *time.Time `json:"timestamp,omitempty"`
 	FetchedAt          time.Time  `json:"fetchedAt"`
 	Available          bool       `json:"available"`

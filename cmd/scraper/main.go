@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/mehradSaeedi/gold-price-tracker/internal/scraper"
 	"github.com/mehradSaeedi/gold-price-tracker/internal/storage"
 )
@@ -145,6 +147,10 @@ func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, da
 
 // /\ Start the scrapers and serve the dashboard and its price data.
 func main() {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("could not load .env file; check its syntax and permissions")
+	}
+
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		log.Fatal(err)
@@ -153,6 +159,10 @@ func main() {
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Jar:     jar,
+	}
+	snappFetcher, snappConfigErr := scraper.NewSnappSarmayehScraper(client)
+	if snappConfigErr != nil {
+		log.Printf("Snapp Sarmayeh scraper disabled: %v", snappConfigErr)
 	}
 
 	// /\ Keep database credentials in the environment so they never need to live in source code.
@@ -189,12 +199,18 @@ func main() {
 		{"Taline", "Taline website", scraper.TalineScraper{Client: client}},
 		{"MelliGold", "MelliGold API", scraper.MelligoldScraper{Client: client}},
 		{"TapsiGold", "MelliGold API", scraper.TapsiScraper{Client: client}},
-		{"Snapp Sarmayeh", "Snapp Sarmayeh public API", scraper.SnappSarmayehScraper{Client: client}},
 		{"Daric", "Daric public API", scraper.DaricScraper{Client: client}},
 		{"Zarafza", "Zarafza public API", scraper.ZarafzaScraper{Client: client}},
 		{"Zarpay", "Zarpay public API", scraper.ZarpayScraper{Client: client}},
 		{"Zarpin", "Zarpin public API", scraper.ZarpinScraper{Client: client}},
 		{"Gerami", "Gerami public API", scraper.GeramiScraper{Client: client}},
+	}
+	if snappFetcher != nil {
+		fetchers = append(fetchers, struct {
+			name    string
+			source  string
+			fetcher priceFetcher
+		}{"Snapp Sarmayeh", "Snapp Sarmayeh app API", snappFetcher})
 	}
 	for _, item := range fetchers {
 		go pollPrices(item.name, item.source, item.fetcher, store, database)

@@ -60,6 +60,7 @@
       "Myshemsh Socket.IO": "داده زنده از ارتباط مای‌شمش",
       "Gerami public API": "رابط عمومی گرمی",
       "Snapp Sarmayeh public API": "رابط عمومی اسنپ سرمایه",
+      "Snapp Sarmayeh app API": "رابط اپلیکیشن اسنپ سرمایه",
       "Zarpin public API": "رابط عمومی زرپین",
       "Daric public API": "رابط عمومی داریک",
       "Zarafza public API": "رابط عمومی زرافزا",
