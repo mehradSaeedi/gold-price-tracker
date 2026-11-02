@@ -7,6 +7,7 @@
   <title>پایش قیمت طلا</title>
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/chart-overlays.css">
+  <link rel="stylesheet" href="/history-overview.css">
 </head>
 <body class="min-h-screen bg-paper text-ink antialiased">
   <main class="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 lg:px-8">
@@ -107,6 +108,44 @@
       <p class="border-t border-line px-4 py-3 text-xs leading-6 text-muted sm:px-5">اختلاف هر پلتفرم برابر است با هزینه مؤثر خرید هر گرم منهای دریافتی مؤثر فروش هر گرم. اگر کارمزد نامشخص باشد، مبلغ نهایی و اختلاف قابل محاسبه نیست.</p>
     </section>
 
+    <!-- /\ Isolated history overview module; remove this section and its two assets to roll it back. -->
+    <section id="history-overview" class="history-overview" aria-labelledby="history-title">
+      <div class="history-heading">
+        <div>
+          <p class="history-eyebrow">نبض بازار</p>
+          <h2 id="history-title">نمای کلی روند قیمت</h2>
+          <p class="history-subtitle">تغییرات قیمت مؤثر را در بازه دلخواه بررسی کنید.</p>
+        </div>
+        <div class="history-filters">
+          <label for="history-site">ارائه‌دهنده<select id="history-site" aria-label="ارائه‌دهنده نمودار"></select></label>
+          <label for="history-side">نوع قیمت<select id="history-side" aria-label="نوع قیمت"><option value="buy">خرید</option><option value="sell">فروش</option></select></label>
+          <div class="history-ranges" role="group" aria-label="بازه تاریخچه">
+            <button type="button" data-history-range="24h" aria-pressed="true">۲۴ ساعت</button>
+            <button type="button" data-history-range="7d" aria-pressed="false">۷ روز</button>
+            <button type="button" data-history-range="30d" aria-pressed="false">۳۰ روز</button>
+          </div>
+        </div>
+      </div>
+      <div class="history-stats" aria-live="polite">
+        <article class="history-stat"><span>آخرین قیمت</span><strong id="history-latest">—</strong><small>تومان / گرم</small></article>
+        <article class="history-stat"><span>تغییر بازه</span><strong id="history-change">—</strong><small id="history-period">در بازه انتخابی</small></article>
+        <article class="history-stat"><span>کمترین</span><strong id="history-low">—</strong><small>تومان / گرم</small></article>
+        <article class="history-stat"><span>بیشترین</span><strong id="history-high">—</strong><small>تومان / گرم</small></article>
+      </div>
+      <div class="history-chart-wrap">
+        <div id="history-empty" class="history-empty" role="status">در حال دریافت تاریخچه…</div>
+        <svg id="history-chart" viewBox="0 0 1000 250" role="img" aria-label="نمودار تغییرات قیمت در بازه انتخابی" preserveAspectRatio="none">
+          <defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d0a74e" stop-opacity=".28"/><stop offset="100%" stop-color="#d0a74e" stop-opacity="0"/></linearGradient></defs>
+          <g id="history-grid"></g><path id="history-area" class="history-area" d=""/><path id="history-line" class="history-line" d=""/><circle id="history-dot" r="5" cx="0" cy="0"/>
+        </svg>
+        <div id="history-tooltip" class="history-tooltip" hidden></div>
+      </div>
+      <div class="history-foot">
+        <span id="history-coverage">—</span>
+        <span><i class="history-live-dot"></i> تاریخچه بر پایه داده‌های جمع‌آوری‌شده</span>
+      </div>
+    </section>
+
     <!-- /\ The chart can overlay additional providers as candle studies. -->
     <section id="chart-panel" class="mt-6 overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" aria-labelledby="chart-title">
       <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-4 py-4 sm:px-5">
@@ -138,6 +177,7 @@
     </section>
   </main>
   <script src="/charting_library/charting_library.standalone.js"></script>
+  <script src="/history-overview.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>
