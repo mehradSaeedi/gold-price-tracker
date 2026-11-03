@@ -6,8 +6,10 @@
   <meta name="theme-color" content="#101114">
   <title>پایش قیمت طلا</title>
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/chart-overlays.css">
   <link rel="stylesheet" href="/history-overview.css">
+  <link rel="stylesheet" href="/best-offer-timeline.css">
 </head>
 <body class="min-h-screen bg-paper text-ink antialiased">
   <main class="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 lg:px-8">
@@ -108,14 +110,25 @@
       <p class="border-t border-line px-4 py-3 text-xs leading-6 text-muted sm:px-5">اختلاف هر پلتفرم برابر است با هزینه مؤثر خرید هر گرم منهای دریافتی مؤثر فروش هر گرم. اگر کارمزد نامشخص باشد، مبلغ نهایی و اختلاف قابل محاسبه نیست.</p>
     </section>
 
-    <!-- /\ Isolated history overview module; remove this section and its two assets to roll it back. -->
-    <section id="history-overview" class="history-overview" aria-labelledby="history-title">
+    <section class="analytics-workspace" aria-labelledby="analytics-title">
+      <header class="analytics-header">
+        <h2 id="analytics-title">تحلیل بازار</h2>
+      </header>
+      <div class="analytics-tabs" role="tablist" aria-label="نماهای تحلیل بازار">
+        <button id="history-tab" class="analytics-tab" type="button" role="tab" tabindex="0" aria-controls="history-overview" aria-selected="true" data-market-tab="history">
+          <span class="analytics-tab-icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3v18h18M7 14l4-4 4 4 6-7" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>روند قیمت</span>
+        </button>
+        <button id="offers-tab" class="analytics-tab" type="button" role="tab" tabindex="-1" aria-controls="best-offer-timeline" aria-selected="false" data-market-tab="offers">
+          <span class="analytics-tab-icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 21h8m-4-4v4m4-13V3H8v5a4 4 0 0 0 8 0V3m0 2h4v2a4 4 0 0 1-4 4M8 5H4v2a4 4 0 0 0 4 4" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>بهترین پیشنهاد</span>
+        </button>
+        <button id="advanced-chart-tab" class="analytics-tab" type="button" role="tab" tabindex="-1" aria-controls="chart-panel" aria-selected="false" data-market-tab="chart">
+          <span class="analytics-tab-icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5v4m0 6v4" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/><rect x="7" y="9" width="4" height="6" rx="1" stroke="currentColor" stroke-width="1.65"/><path d="M17 3v2m0 8v3" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/><rect x="15" y="5" width="4" height="8" rx="1" stroke="currentColor" stroke-width="1.65"/></svg></span><span>نمودار تحلیلی</span>
+        </button>
+      </div>
+      <div class="analytics-panels">
+      <section id="history-overview" class="history-overview" role="tabpanel" aria-labelledby="history-tab">
       <div class="history-heading">
-        <div>
-          <p class="history-eyebrow">نبض بازار</p>
-          <h2 id="history-title">نمای کلی روند قیمت</h2>
-          <p class="history-subtitle">تغییرات قیمت مؤثر را در بازه دلخواه بررسی کنید.</p>
-        </div>
+        <h3 class="market-section-title">روند قیمت</h3>
         <div class="history-filters">
           <label for="history-site">ارائه‌دهنده<select id="history-site" aria-label="ارائه‌دهنده نمودار"></select></label>
           <label for="history-side">نوع قیمت<select id="history-side" aria-label="نوع قیمت"><option value="buy">خرید</option><option value="sell">فروش</option></select></label>
@@ -132,22 +145,66 @@
         <article class="history-stat"><span>کمترین</span><strong id="history-low">—</strong><small>تومان / گرم</small></article>
         <article class="history-stat"><span>بیشترین</span><strong id="history-high">—</strong><small>تومان / گرم</small></article>
       </div>
-      <div class="history-chart-wrap">
+      <div class="history-chart-wrap is-empty">
         <div id="history-empty" class="history-empty" role="status">در حال دریافت تاریخچه…</div>
-        <svg id="history-chart" viewBox="0 0 1000 250" role="img" aria-label="نمودار تغییرات قیمت در بازه انتخابی" preserveAspectRatio="none">
-          <defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d0a74e" stop-opacity=".28"/><stop offset="100%" stop-color="#d0a74e" stop-opacity="0"/></linearGradient></defs>
-          <g id="history-grid"></g><path id="history-area" class="history-area" d=""/><path id="history-line" class="history-line" d=""/><circle id="history-dot" r="5" cx="0" cy="0"/>
-        </svg>
-        <div id="history-tooltip" class="history-tooltip" hidden></div>
+        <div class="market-chart-frame">
+          <div id="history-y-axis" class="market-y-axis" aria-label="مقیاس قیمت بر حسب تومان"><span id="history-live-price" class="market-live-price"></span></div>
+          <div class="market-plot" id="history-plot">
+            <svg id="history-chart" viewBox="0 0 1000 250" role="img" aria-label="نمودار تغییرات قیمت در بازه انتخابی" preserveAspectRatio="none">
+              <defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d0a74e" stop-opacity=".3"/><stop offset="100%" stop-color="#d0a74e" stop-opacity="0"/></linearGradient></defs>
+              <g id="history-grid"></g><path id="history-area" class="history-area" d=""/><path id="history-line" class="history-line" d=""/><line id="history-crosshair" class="history-crosshair" y1="20" y2="220" visibility="hidden"/><line id="history-crosshair-level" class="history-crosshair-level" x1="10" x2="990" visibility="hidden"/><circle id="history-hover-ring" class="market-hover-ring history-hover-ring" r="10" cx="0" cy="0" visibility="hidden"/><circle id="history-dot" r="5" cx="0" cy="0"/>
+            </svg>
+            <div class="market-key-label market-key-high" id="history-key-high" hidden></div>
+            <div class="market-key-label market-key-low" id="history-key-low" hidden></div>
+            <div id="history-tooltip" class="history-tooltip" hidden></div>
+          </div>
+          <div class="market-x-axis" aria-label="مقیاس زمان"><span id="history-x-start"></span><span id="history-x-middle"></span><span id="history-x-end"></span></div>
+        </div>
       </div>
       <div class="history-foot">
         <span id="history-coverage">—</span>
-        <span><i class="history-live-dot"></i> تاریخچه بر پایه داده‌های جمع‌آوری‌شده</span>
       </div>
-    </section>
+      </section>
 
-    <!-- /\ The chart can overlay additional providers as candle studies. -->
-    <section id="chart-panel" class="mt-6 overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" aria-labelledby="chart-title">
+      <section id="best-offer-timeline" class="best-offer-timeline" role="tabpanel" aria-labelledby="offers-tab" hidden>
+      <div class="best-offer-heading">
+        <h3 class="market-section-title">بهترین پیشنهاد در گذر زمان</h3>
+        <div class="best-offer-controls">
+          <label for="best-offer-side">جهت معامله<select id="best-offer-side"><option value="buy">بهترین خرید</option><option value="sell">بهترین فروش</option></select></label>
+          <div class="best-offer-ranges" role="group" aria-label="بازه نمودار پیشنهادها">
+            <button type="button" data-offer-range="24h" aria-pressed="true">۲۴ ساعت</button>
+            <button type="button" data-offer-range="7d" aria-pressed="false">۷ روز</button>
+            <button type="button" data-offer-range="30d" aria-pressed="false">۳۰ روز</button>
+          </div>
+        </div>
+      </div>
+      <div class="best-offer-stats" aria-live="polite">
+        <article><span id="best-offer-current-label">بهترین قیمت فعلی</span><strong id="best-offer-current">—</strong><small id="best-offer-provider">در انتظار داده</small></article>
+        <article><span>تغییر بهترین قیمت</span><strong id="best-offer-change">—</strong><small>از ابتدای بازه موجود</small></article>
+        <article><span>برنده‌های بازه</span><strong id="best-offer-leaders">—</strong><small>تعداد ارائه‌دهندگان متفاوت</small></article>
+        <article><span>پوشش داده</span><strong id="best-offer-points">—</strong><small id="best-offer-coverage">بازه‌های دارای پیشنهاد معتبر</small></article>
+      </div>
+      <div class="best-offer-chart-wrap is-empty">
+        <div id="best-offer-empty" class="best-offer-empty" role="status">در حال گردآوری بهترین پیشنهادها…</div>
+        <div class="market-chart-frame">
+          <div id="best-offer-y-axis" class="market-y-axis" aria-label="مقیاس قیمت بر حسب تومان"><span id="best-offer-live-price" class="market-live-price"></span></div>
+          <div class="market-plot" id="best-offer-plot">
+            <svg id="best-offer-chart" viewBox="0 0 1000 250" role="img" aria-label="تغییر بهترین قیمت بین ارائه‌دهندگان" preserveAspectRatio="none">
+              <defs><linearGradient id="best-offer-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#63d6a0" stop-opacity=".22"/><stop offset="100%" stop-color="#63d6a0" stop-opacity="0"/></linearGradient></defs>
+              <g id="best-offer-grid"></g><path id="best-offer-area" d=""/><g id="best-offer-lines"></g><line id="best-offer-crosshair" class="best-offer-crosshair" y1="20" y2="220" visibility="hidden"/><line id="best-offer-crosshair-level" class="best-offer-crosshair-level" x1="10" x2="990" visibility="hidden"/><circle id="best-offer-hover-ring" class="market-hover-ring best-offer-hover-ring" r="10" cx="0" cy="0" visibility="hidden"/><circle id="best-offer-dot" r="5" cx="0" cy="0"/>
+            </svg>
+            <div class="market-key-label market-key-high" id="best-offer-key-high" hidden></div>
+            <div class="market-key-label market-key-low" id="best-offer-key-low" hidden></div>
+            <div id="best-offer-tooltip" class="best-offer-tooltip" hidden></div>
+          </div>
+          <div class="market-x-axis" aria-label="مقیاس زمان"><span id="best-offer-x-start"></span><span id="best-offer-x-middle"></span><span id="best-offer-x-end"></span></div>
+        </div>
+      </div>
+      <div id="best-offer-legend" class="best-offer-legend" aria-label="راهنمای ارائه‌دهندگان"></div>
+      <div class="best-offer-foot"><span id="best-offer-note">مبالغ با کارمزدهای شناخته‌شده و برای وزن سفارش انتخاب‌شده محاسبه می‌شوند.</span><span>هر نقطه، بهترین نرخ ثبت‌شده در آن بازه است.</span></div>
+      </section>
+
+      <section id="chart-panel" class="analytics-chart-panel overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" role="tabpanel" aria-labelledby="advanced-chart-tab" hidden>
       <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-4 py-4 sm:px-5">
         <div>
           <h2 id="chart-title" class="text-lg font-bold">نمودار قیمت</h2>
@@ -174,10 +231,13 @@
         </div>
       </div>
       <div class="p-2 sm:p-4"><div id="candle-chart" aria-label="نمودار کندلی قیمت طلا"></div></div>
+      </section>
+      </div>
     </section>
   </main>
-  <script src="/charting_library/charting_library.standalone.js"></script>
+  <script src="/charting_library/charting_library.standalone.js" defer></script>
   <script src="/history-overview.js" defer></script>
+  <script src="/best-offer-timeline.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>

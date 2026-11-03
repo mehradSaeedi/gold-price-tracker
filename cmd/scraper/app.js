@@ -24,6 +24,8 @@
       "Zarafza": "https://zarafza.com/",
       "Zarpay": "https://zarpay24.com/trade-gold",
     };
+    // Avoid repeating requests to providers whose favicon endpoint has already failed.
+    const failedFaviconOrigins = new Set();
     // /\ Show familiar Persian provider names while retaining the API's original identifiers internally.
     const providerDisplayNames = {
       Milli: "میلی",
@@ -39,7 +41,7 @@
       Myshemsh: "مای‌شمش",
       Gerami: "گرمی",
       "Snapp Sarmayeh": "اسنپ سرمایه",
-      // "Digi Gold": "دیجی‌گلد",
+      "Digi Gold": "دیجی‌گلد",
       Zarpin: "زرپین",
       Daric: "داریک",
       Zarafza: "زرافزا",
@@ -204,14 +206,20 @@
     // /\ Ask the existing endpoint for one requested time range and convert its candles to TradingView bars.
     async function loadBars(selection, resolution, from, to, limit = 2000) {
       const interval = apiInterval(resolution);
+      // Keep SQL work proportional to the bars TradingView can display; otherwise its
+      // broad initial history request makes the API aggregate years of observations.
+      const secondsPerBar = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400 }[interval];
+      const boundedTo = Number.isFinite(to) ? to : Math.floor(Date.now() / 1000);
+      const requestedFrom = Number.isFinite(from) ? from : boundedTo - limit * secondsPerBar;
+      const boundedFrom = Math.max(requestedFrom, boundedTo - limit * secondsPerBar);
       const params = new URLSearchParams({
         site: selection.site,
         interval,
         grams: String(selection.grams),
         limit: String(limit),
+        from: new Date(boundedFrom * 1000).toISOString(),
+        to: new Date(boundedTo * 1000).toISOString(),
       });
-      if (Number.isFinite(from)) params.set("from", new Date(from * 1000).toISOString());
-      if (Number.isFinite(to)) params.set("to", new Date(to * 1000).toISOString());
       const response = await fetch(`/api/candles?${params}`);
       if (!response.ok) throw new Error(`خطای سرور ${numberFormat.format(response.status)} هنگام دریافت کندل‌ها`);
       const candles = await response.json();
@@ -348,6 +356,7 @@
     // /\ Start the hosted TradingView widget and let its own toolbar handle intervals and drawing tools.
     function initializeChart() {
       if (chartInitialized) return;
+      if (document.getElementById("chart-panel").hidden) return;
       if (!window.TradingView?.widget) {
         document.getElementById("chart-status").textContent = "کتابخانه نمودار بارگذاری نشده است؛ نشانی فایل‌های نمودار را بررسی کنید.";
         return;
@@ -770,14 +779,20 @@
         provider.className = "flex w-full items-center gap-2 font-semibold";
         const tradeURL = providerTradeLinks[price.site];
         if (tradeURL) {
-          const favicon = document.createElement("img");
-          favicon.className = "provider-logo";
-          favicon.src = `${new URL(tradeURL).origin}/favicon.ico`;
-          favicon.alt = "";
-          favicon.setAttribute("aria-hidden", "true");
-          favicon.loading = "lazy";
-          favicon.addEventListener("error", () => favicon.remove(), { once: true });
-          provider.append(favicon);
+          const faviconURL = new URL("/favicon.ico", tradeURL);
+          if (!failedFaviconOrigins.has(faviconURL.origin)) {
+            const favicon = document.createElement("img");
+            favicon.className = "provider-logo";
+            favicon.src = faviconURL.href;
+            favicon.alt = "";
+            favicon.setAttribute("aria-hidden", "true");
+            favicon.loading = "lazy";
+            favicon.addEventListener("error", () => {
+              failedFaviconOrigins.add(faviconURL.origin);
+              favicon.remove();
+            }, { once: true });
+            provider.append(favicon);
+          }
         }
         const providerName = document.createElement(tradeURL ? "a" : "span");
         providerName.className = tradeURL ? "provider-name provider-link" : "provider-name";
@@ -950,8 +965,31 @@
       const button = event.target.closest("button[data-chart-provider]");
       if (!button) return;
       document.getElementById("chart-site").value = button.dataset.chartProvider;
+      activateMarketTab("chart");
       syncChartSymbol();
       document.getElementById("chart-panel").scrollIntoView({ behavior: "smooth", block: "start" });
     });
     document.getElementById("chart-site").addEventListener("change", syncChartSymbol);
     document.getElementById("chart-side").addEventListener("change", syncChartSymbol);
+    const marketTabs = [...document.querySelectorAll("[data-market-tab]")];
+    function activateMarketTab(view) {
+      const activeTab = marketTabs.find((tab) => tab.dataset.marketTab === view);
+      if (!activeTab) return;
+      for (const tab of marketTabs) {
+        const selected = tab === activeTab;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+      }
+      if (view === "chart") initializeChart();
+    }
+    for (const tab of marketTabs) {
+      tab.addEventListener("click", () => activateMarketTab(tab.dataset.marketTab));
+      tab.addEventListener("keydown", (event) => {
+        const direction = event.key === "ArrowLeft" ? 1 : event.key === "ArrowRight" ? -1 : 0;
+        if (!direction) return;
+        event.preventDefault();
+        const next = marketTabs[(marketTabs.indexOf(tab) + direction + marketTabs.length) % marketTabs.length];
+        next.focus(); next.click();
+      });
+    }

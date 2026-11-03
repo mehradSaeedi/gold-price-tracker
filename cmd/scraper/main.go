@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"embed"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,8 +25,75 @@ import (
 
 // /\ Bundle the dashboard and chart assets so the server can run from any working directory.
 //
-//go:embed index.html app.js history-overview.js app.css styles.css chart-overlays.css history-overview.css fonts charting_library
+//go:embed index.html app.js history-overview.js best-offer-timeline.js app.css styles.css chart-overlays.css history-overview.css best-offer-timeline.css fonts charting_library
 var page embed.FS
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	writer *gzip.Writer
+}
+
+// gzip replaces the response body's writer, so Content-Length from the uncompressed
+// file would be wrong. Let net/http choose chunked encoding for the compressed body.
+func (w *gzipResponseWriter) WriteHeader(status int) {
+	w.Header().Del("Content-Length")
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *gzipResponseWriter) Write(data []byte) (int, error) {
+	return w.writer.Write(data)
+}
+
+// chartAssetHandler compresses and caches the large, versioned TradingView assets.
+func chartAssetHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/charting_library/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, "/charting_library/bundles/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+		}
+
+		// HEAD and byte-range requests need the original file representation; don't gzip them.
+		if r.Method == http.MethodHead || r.Header.Get("Range") != "" || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// BestSpeed keeps the large chart download compact without spending much VPS CPU.
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		defer gz.Close()
+		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, writer: gz}, r)
+	})
+}
+
+func acceptsGzip(header string) bool {
+	// Browsers send a comma-separated list of supported encodings; honor gzip;q=0.
+	for _, item := range strings.Split(header, ",") {
+		parts := strings.Split(strings.TrimSpace(item), ";")
+		if strings.TrimSpace(parts[0]) != "gzip" {
+			continue
+		}
+		for _, option := range parts[1:] {
+			name, value, ok := strings.Cut(strings.TrimSpace(option), "=")
+			if ok && strings.TrimSpace(name) == "q" && strings.TrimSpace(value) == "0" {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
 
 // /\ In-memory prices shared by the scrapers and the dashboard page.
 type priceStore struct {
@@ -352,7 +421,68 @@ func main() {
 			log.Printf("encode candles: %v", err)
 		}
 	})
-	http.Handle("/", http.FileServer(http.FS(page)))
+	// /\\ Return the winning fee-aware buy and sell provider in each market-history bucket.
+	http.HandleFunc("/api/best-offers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		query := r.URL.Query()
+		interval := query.Get("interval")
+		seconds, ok := candleIntervals[interval]
+		if !ok {
+			http.Error(w, "interval must be one of: 1m, 5m, 15m, 1h, 1d", http.StatusBadRequest)
+			return
+		}
+		grams := 1.0
+		if rawGrams := query.Get("grams"); rawGrams != "" {
+			grams, err = strconv.ParseFloat(rawGrams, 64)
+			if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
+				http.Error(w, "grams must be between 0.001 and 10000", http.StatusBadRequest)
+				return
+			}
+		}
+		from, err := parseCandleTime(query.Get("from"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		to, err := parseCandleTime(query.Get("to"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if from != nil && to != nil && !from.Before(*to) {
+			http.Error(w, "from must be earlier than to", http.StatusBadRequest)
+			return
+		}
+		limit := 500
+		if rawLimit := query.Get("limit"); rawLimit != "" {
+			limit, err = strconv.Atoi(rawLimit)
+			if err != nil || limit < 1 || limit > 2000 {
+				http.Error(w, "limit must be between 1 and 2000", http.StatusBadRequest)
+				return
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		configuredSites := store.list()
+		sites := make([]string, 0, len(configuredSites))
+		for _, price := range configuredSites {
+			sites = append(sites, price.Site)
+		}
+		points, err := database.BestOffers(ctx, interval, seconds, from, to, limit, grams, sites)
+		if err != nil {
+			log.Printf("load %s best offers: %v", interval, err)
+			http.Error(w, "could not load best offers", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err := json.NewEncoder(w).Encode(points); err != nil {
+			log.Printf("encode best offers: %v", err)
+		}
+	})
+	http.Handle("/", chartAssetHandler(http.FileServer(http.FS(page))))
 
 	log.Println("Dashboard available at http://localhost:8080")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,6 +48,15 @@ type Candle struct {
 	SellFeesKnown bool `json:"sellFeesKnown"`
 	// /\ ObservationCount shows how many raw rows contributed to this candle.
 	ObservationCount int64 `json:"observationCount"`
+}
+
+// /\\ BestOfferPoint records the most competitive known-fee quote in each time bucket.
+type BestOfferPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	BuySite   string    `json:"buySite,omitempty"`
+	BuyToman  int64     `json:"buyToman,omitempty"`
+	SellSite  string    `json:"sellSite,omitempty"`
+	SellToman int64     `json:"sellToman,omitempty"`
 }
 
 // /\ OpenPostgres checks the connection now, so a bad database URL fails at startup instead of on the first quote.
@@ -97,27 +108,41 @@ func (p *Postgres) Candles(ctx context.Context, site, interval string, seconds i
 		return nil, fmt.Errorf("candle interval, limit, and order size must be within their allowed ranges")
 	}
 	intervalValue := fmt.Sprintf("%d seconds", seconds)
+	args := []any{intervalValue, site}
+	filters := []string{"site = $2"}
+	// Only add a time predicate when its bound exists. Keeping nullable-parameter ORs
+	// out of the WHERE clause lets PostgreSQL use the (site, fetched_at) index directly.
+	if from != nil {
+		args = append(args, *from)
+		filters = append(filters, fmt.Sprintf("fetched_at >= $%d", len(args)))
+	}
+	if to != nil {
+		args = append(args, *to)
+		filters = append(filters, fmt.Sprintf("fetched_at < $%d", len(args)))
+	}
+	limitParam := len(args) + 1
+	args = append(args, limit)
+	gramsParam := len(args) + 1
+	args = append(args, grams)
 	rows, err := p.pool.Query(ctx, `
 		WITH bucketed AS (
 			SELECT id, site, fetched_at,
 			       -- /\ Convert each known fee to its per-gram effect before OHLC picks the extremes.
 			       CASE
 			         WHEN fee_included_in_price OR buy_fee_rate IS NULL THEN buy_toman
-			         ELSE round(buy_toman::numeric * (1::numeric + buy_fee_rate::numeric) + buy_fee_fixed_toman::numeric / $6::numeric)::bigint
+			         ELSE round(buy_toman::numeric * (1::numeric + buy_fee_rate::numeric) + buy_fee_fixed_toman::numeric / $`+strconv.Itoa(gramsParam)+`::numeric)::bigint
 			       END AS buy_price,
 			       -- /\ Selling subtracts both the percentage and the per-gram share of the fixed fee.
 			       CASE
 			         WHEN fee_included_in_price OR sell_fee_rate IS NULL THEN sell_toman
-			         ELSE round(sell_toman::numeric * (1::numeric - sell_fee_rate::numeric) - sell_fee_fixed_toman::numeric / $6::numeric)::bigint
+			         ELSE round(sell_toman::numeric * (1::numeric - sell_fee_rate::numeric) - sell_fee_fixed_toman::numeric / $`+strconv.Itoa(gramsParam)+`::numeric)::bigint
 			       END AS sell_price,
 			       -- /\ Tell the chart if any observation had to fall back to an unadjusted quote.
 			       (fee_included_in_price OR buy_fee_rate IS NOT NULL) AS buy_fees_known,
-			       (fee_included_in_price OR sell_fee_rate IS NOT NULL) AS sell_fees_known,
-			       date_bin($1::interval, fetched_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket
+				       (fee_included_in_price OR sell_fee_rate IS NOT NULL) AS sell_fees_known,
+				       date_bin($1::interval, fetched_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket
 			FROM price_observations
-			WHERE site = $2
-			  AND ($3::timestamptz IS NULL OR fetched_at >= $3)
-			  AND ($4::timestamptz IS NULL OR fetched_at < $4)
+			WHERE `+strings.Join(filters, " AND ")+`
 		), grouped AS (
 			SELECT bucket,
 			       (array_agg(buy_price ORDER BY fetched_at, id))[1] AS buy_open,
@@ -139,8 +164,8 @@ func (p *Postgres) Candles(ctx context.Context, site, interval string, seconds i
 		       buy_fees_known, sell_fees_known, observation_count
 		FROM grouped
 		ORDER BY bucket DESC
-		LIMIT $5
-	`, intervalValue, site, from, to, limit, grams)
+		LIMIT $`+strconv.Itoa(limitParam)+`
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +193,93 @@ func (p *Postgres) Candles(ctx context.Context, site, interval string, seconds i
 		candles[left], candles[right] = candles[right], candles[left]
 	}
 	return candles, nil
+}
+
+// /\\ BestOffers finds the cheapest fee-aware buy and highest fee-aware sell quote per bucket.
+func (p *Postgres) BestOffers(ctx context.Context, interval string, seconds int64, from, to *time.Time, limit int, grams float64, sites []string) ([]BestOfferPoint, error) {
+	if seconds <= 0 || limit <= 0 || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
+		return nil, fmt.Errorf("best offer interval, limit, and order size must be within their allowed ranges")
+	}
+	if len(sites) == 0 {
+		return []BestOfferPoint{}, nil
+	}
+	intervalValue := fmt.Sprintf("%d seconds", seconds)
+	rows, err := p.pool.Query(ctx, `
+		WITH params AS (
+			SELECT $1::interval AS width,
+				COALESCE($2::timestamptz, now() - $4 * $1::interval) AS range_start,
+				COALESCE($3::timestamptz, now()) AS range_end
+		), candidate_buckets AS (
+			-- Make only the requested time buckets, then keep the newest limit buckets.
+			SELECT generate_series(
+				date_bin(width, range_start, TIMESTAMPTZ '2000-01-01 00:00:00+00'),
+				date_bin(width, range_end - INTERVAL '1 microsecond', TIMESTAMPTZ '2000-01-01 00:00:00+00'),
+				width
+			) AS bucket
+			FROM params
+		), buckets AS (
+			SELECT bucket FROM candidate_buckets ORDER BY bucket DESC LIMIT $4
+		), sites AS (
+			-- Use the app's configured providers instead of scanning historical rows to rediscover them.
+			SELECT unnest($6::text[]) AS site
+		), latest AS (
+			-- For each provider and bucket, fetch its newest quote with an indexed lookup.
+			-- This avoids aggregating and sorting every historical observation in the range.
+			SELECT buckets.bucket, sites.site,
+				CASE WHEN quote.fee_included_in_price THEN round(quote.buy_toman::numeric * $5::numeric)::bigint
+				     ELSE round(quote.buy_toman::numeric * (1::numeric + COALESCE(quote.buy_fee_rate, 0)::numeric) * $5::numeric + COALESCE(quote.buy_fee_fixed_toman, 0)::numeric)::bigint END AS buy_total,
+				CASE WHEN quote.fee_included_in_price THEN round(quote.sell_toman::numeric * $5::numeric)::bigint
+				     ELSE round(quote.sell_toman::numeric * (1::numeric - COALESCE(quote.sell_fee_rate, 0)::numeric) * $5::numeric - COALESCE(quote.sell_fee_fixed_toman, 0)::numeric)::bigint END AS sell_total,
+				(quote.fee_included_in_price OR quote.buy_fee_rate IS NOT NULL) AS buy_known,
+				(quote.fee_included_in_price OR quote.sell_fee_rate IS NOT NULL) AS sell_known
+			FROM buckets
+			CROSS JOIN sites
+			CROSS JOIN params
+			JOIN LATERAL (
+				SELECT observation.buy_toman, observation.sell_toman,
+				       observation.buy_fee_rate, observation.buy_fee_fixed_toman,
+				       observation.sell_fee_rate, observation.sell_fee_fixed_toman,
+				       observation.fee_included_in_price
+				FROM price_observations AS observation
+				WHERE observation.site = sites.site
+				  AND observation.fetched_at >= GREATEST(buckets.bucket, params.range_start)
+				  AND observation.fetched_at < LEAST(buckets.bucket + params.width, params.range_end)
+				ORDER BY observation.fetched_at DESC, observation.id DESC
+				LIMIT 1
+			) AS quote ON TRUE
+		), buys AS (
+			-- Ignore providers whose fees are unknown; compare customer-facing totals.
+			SELECT DISTINCT ON (bucket) bucket, site, buy_total
+			FROM latest WHERE buy_known ORDER BY bucket, buy_total, site
+		), sells AS (
+			SELECT DISTINCT ON (bucket) bucket, site, sell_total
+			FROM latest WHERE sell_known ORDER BY bucket, sell_total DESC, site
+		), observed_buckets AS (
+			SELECT bucket FROM latest GROUP BY bucket
+		)
+		SELECT observed_buckets.bucket, COALESCE(buys.site, ''), COALESCE(buys.buy_total, 0),
+		       COALESCE(sells.site, ''), COALESCE(sells.sell_total, 0)
+		FROM observed_buckets
+		LEFT JOIN buys USING (bucket)
+		LEFT JOIN sells USING (bucket)
+		ORDER BY observed_buckets.bucket ASC
+	`, intervalValue, from, to, limit, grams, sites)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	points := make([]BestOfferPoint, 0)
+	for rows.Next() {
+		var point BestOfferPoint
+		if err := rows.Scan(&point.Timestamp, &point.BuySite, &point.BuyToman, &point.SellSite, &point.SellToman); err != nil {
+			return nil, err
+		}
+		points = append(points, point)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return points, nil
 }
 
 // /\ Close releases the pool's connections when the app shuts down.

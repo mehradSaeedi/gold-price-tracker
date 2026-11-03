@@ -1,0 +1,40 @@
+/* /\\ Isolated styling for the optional market-wide best-offer timeline. */
+.best-offer-timeline { position: relative; overflow: hidden; margin-top: 14px; border: 1px solid #33383b; border-radius: 18px; background: radial-gradient(ellipse at 96% 0%,rgba(71,199,139,.085),transparent 34%),linear-gradient(145deg,#191c1e,#181a1f 62%,#191a1e); box-shadow: 0 14px 40px rgba(0,0,0,.18); }
+.best-offer-timeline::before { position: absolute; top: 0; right: 10%; left: 10%; height: 1px; background: linear-gradient(90deg,transparent,rgba(89,207,152,.48),transparent); content: ""; }
+.best-offer-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; padding: 15px 24px 13px; }
+.best-offer-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; }
+.best-offer-controls label { display: grid; gap: 5px; color: #a8abb2; font-size: 10px; font-weight: 650; }
+.best-offer-controls select { min-width: 118px; height: 36px; border: 1px solid #3a3d44; border-radius: 9px; background: #202228; padding: 0 11px; color: #f0f1f3; }
+.best-offer-ranges { display: flex; gap: 3px; border: 1px solid #35373e; border-radius: 10px; background: rgba(16,17,20,.45); padding: 3px; }
+.best-offer-ranges button { min-height: 28px; border: 0; border-radius: 7px; background: transparent; padding: 3px 10px; color: #a8abb2; cursor: pointer; font-size: 11px; font-weight: 650; transition: background .18s ease,color .18s ease,box-shadow .18s ease; }
+.best-offer-ranges button:hover { color: #73d9a8; }
+.best-offer-ranges button[aria-pressed="true"] { background: linear-gradient(135deg,#63d6a0,#319b6e); box-shadow: 0 3px 12px rgba(71,199,139,.2); color: #10231a; }
+.best-offer-stats { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; padding: 0 24px 12px; }
+.best-offer-stats article { display: grid; gap: 4px; min-height: 79px; border: 1px solid rgba(255,255,255,.055); border-radius: 12px; background: linear-gradient(135deg,rgba(255,255,255,.04),rgba(255,255,255,.012)); padding: 10px 13px; }
+.best-offer-stats article span { color: #a8abb2; font-size: 10px; }
+.best-offer-stats article strong { overflow: hidden; color: #f0f1f3; font-size: clamp(14px,1.8vw,19px); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.best-offer-stats article:first-child strong { color: #75d9a7; }
+.best-offer-stats article small { overflow: hidden; color: #777b84; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+#best-offer-change.offer-up { color: #59cf98; } #best-offer-change.offer-down { color: #ed8588; }
+.best-offer-chart-wrap { position: relative; min-height: 270px; margin: 0 16px; border-radius: 12px; background: linear-gradient(180deg,rgba(10,11,13,.1),rgba(10,11,13,.32)); }
+#best-offer-chart { display: block; width: 100%; height: 270px; overflow: visible; touch-action: pan-y; }
+#best-offer-chart.best-offer-chart-hidden { visibility: hidden; }
+.best-offer-gridline { stroke: rgba(255,255,255,.065); stroke-dasharray: 3 7; stroke-width: 1; }
+.best-offer-axis-label { fill: #7f8985; font-family: Vazirmatn,sans-serif; font-size: 10px; }
+#best-offer-area { fill: url(#best-offer-fill); animation: offer-area-glow 4s ease-in-out infinite alternate; }
+.best-offer-segment { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 2px 7px rgba(0,0,0,.22)); }
+#best-offer-dot { fill: #effff6; stroke: #3c9c70; stroke-width: 4; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 8px rgba(115,237,171,.9)); animation: offer-dot-pulse 1.8s ease-in-out infinite; }
+.best-offer-empty { position: absolute; z-index: 2; top: 50%; left: 50%; width: max-content; max-width: calc(100% - 24px); transform: translate(-50%,-50%); border: 1px solid #3a3d44; border-radius: 999px; background: #202228; padding: 10px 16px; color: #9bcbb1; font-size: 11px; text-align: center; }
+.best-offer-empty[hidden],.best-offer-tooltip[hidden] { display: none; }
+.best-offer-tooltip { position: absolute; z-index: 3; top: 8px; border: 1px solid rgba(114,218,160,.44); border-radius: 9px; background: rgba(20,22,23,.86); padding: 8px 12px; color: #b4f2cf; font-size: 10px; font-variant-numeric: tabular-nums; box-shadow: 0 8px 24px rgba(0,0,0,.3),0 0 16px rgba(71,199,139,.13); backdrop-filter: blur(8px); pointer-events: none; white-space: nowrap; }
+.best-offer-legend { display: flex; flex-wrap: wrap; gap: 7px; min-height: 30px; padding: 3px 24px 8px; }
+.best-offer-legend span { display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255,255,255,.06); border-radius: 999px; background: rgba(255,255,255,.025); padding: 4px 8px; color: #b7bac1; font-size: 9px; }
+.best-offer-legend i { width: 7px; height: 7px; border-radius: 50%; }
+.best-offer-foot { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid rgba(255,255,255,.045); padding: 10px 24px 14px; color: #858992; font-size: 9px; }
+@media(max-width:760px) { .best-offer-heading { align-items: stretch; flex-direction: column; padding: 19px 16px 13px; } .best-offer-controls { align-items: end; } .best-offer-controls label { flex: 1; } .best-offer-controls select { width: 100%; min-width: 0; } .best-offer-ranges { margin-inline-start: auto; } .best-offer-stats { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 0 16px 10px; } .best-offer-chart-wrap { margin: 0 8px; min-height: 225px; } #best-offer-chart { height: 225px; } .best-offer-legend { padding-inline: 16px; } .best-offer-foot { flex-direction: column; padding: 9px 16px 13px; } }
+@media(max-width:380px) { .best-offer-ranges button { padding-inline: 7px; } .best-offer-controls { gap: 6px; } }
+@keyframes offer-area-glow { from { opacity: .55; } to { opacity: 1; } }
+@keyframes offer-dot-pulse { 0%,100% { r: 5; } 50% { r: 7; } }
+@media(prefers-reduced-motion:reduce) { .best-offer-ranges button { transition: none; } #best-offer-area,#best-offer-dot { animation: none; } }
+.best-offer-chart-wrap { min-height: 0; margin-inline: 16px; background: transparent; }
+#best-offer-chart { height: 100%; overflow: hidden; }
