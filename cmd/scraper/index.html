@@ -73,6 +73,16 @@
           <thead>
             <tr>
               <th class="provider-column" scope="col">ارائه‌دهنده</th>
+              <th class="trend-column" scope="col">
+                <div class="provider-trend-heading">
+                  <span>روند · ۲۴ ساعت</span>
+                  <span class="provider-trend-toggle" role="group" aria-label="نوع روند نمودارهای کوچک">
+                    <button type="button" data-provider-trend-side="buy" aria-pressed="true">خرید</button>
+                    <button type="button" data-provider-trend-side="sell" aria-pressed="false">فروش</button>
+                  </span>
+                  <small id="provider-trend-meaning">سبز: بهتر برای خریدار</small>
+                </div>
+              </th>
               <th class="buy-column" scope="col" aria-sort="ascending">
                 <button class="sort-button" type="button" data-sort-key="buyPrice" aria-pressed="true" aria-label="مرتب‌سازی بر اساس کمترین هزینه مؤثر خرید">
                   <span>قیمت خرید</span><svg data-sort-icon="buyPrice" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 10 4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -101,7 +111,7 @@
             </tr>
           </thead>
           <tbody id="comparison-rows">
-            <tr><td class="py-8 text-center text-sm text-muted" colspan="6">در حال دریافت قیمت‌ها…</td></tr>
+            <tr><td class="py-8 text-center text-sm text-muted" colspan="7">در حال دریافت قیمت‌ها…</td></tr>
           </tbody>
         </table>
         <!-- /\\ On narrow screens, remind the reader that more columns are available sideways. -->
@@ -180,9 +190,9 @@
       </div>
       <div class="best-offer-stats" aria-live="polite">
         <article><span id="best-offer-current-label">بهترین قیمت فعلی</span><strong id="best-offer-current">—</strong><small id="best-offer-provider">در انتظار داده</small></article>
-        <article><span>تغییر بهترین قیمت</span><strong id="best-offer-change">—</strong><small>از ابتدای بازه موجود</small></article>
+        <article><span id="best-offer-change-label">تغییر بهترین قیمت</span><strong id="best-offer-change">—</strong><small id="best-offer-change-note">با دریافت داده‌ها مشخص می‌شود</small></article>
         <article><span>برنده‌های بازه</span><strong id="best-offer-leaders">—</strong><small>تعداد ارائه‌دهندگان متفاوت</small></article>
-        <article><span>پوشش داده</span><strong id="best-offer-points">—</strong><small id="best-offer-coverage">بازه‌های دارای پیشنهاد معتبر</small></article>
+        <article><span>بازه‌های دارای نرخ</span><strong id="best-offer-points">—</strong><small id="best-offer-coverage">بازه‌هایی که برایشان نرخ معتبر ثبت شده</small></article>
       </div>
       <div class="best-offer-chart-wrap is-empty">
         <div id="best-offer-empty" class="best-offer-empty" role="status">در حال گردآوری بهترین پیشنهادها…</div>

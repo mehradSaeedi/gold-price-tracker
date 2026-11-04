@@ -44,6 +44,8 @@
     document.getElementById("best-offer-y-axis").replaceChildren();
     ["best-offer-x-start", "best-offer-x-middle", "best-offer-x-end"].forEach((id) => { document.getElementById(id).textContent = ""; });
     ["best-offer-current", "best-offer-provider", "best-offer-change", "best-offer-leaders", "best-offer-points", "best-offer-coverage"].forEach((id) => { document.getElementById(id).textContent = "—"; });
+    document.getElementById("best-offer-change-label").textContent = "تغییر بهترین قیمت";
+    document.getElementById("best-offer-change-note").textContent = "با دریافت داده‌ها مشخص می‌شود";
   }
 
   function render(rows, selectedRange, side) {
@@ -59,9 +61,15 @@
     document.getElementById("best-offer-current").textContent = toman(latest.value);
     document.getElementById("best-offer-provider").textContent = providerName(latest.site);
     const change = document.getElementById("best-offer-change");
+    document.getElementById("best-offer-change-label").textContent = side === "buy" ? "تغییر بهترین خرید" : "تغییر بهترین فروش";
     change.textContent = `${percent.format(delta)}٪`;
     const favorable = side === "buy" ? delta < 0 : delta > 0;
     change.classList.toggle("offer-up", favorable); change.classList.toggle("offer-down", !favorable && delta !== 0);
+    document.getElementById("best-offer-change-note").textContent = delta === 0
+      ? "بدون تغییر"
+      : side === "buy"
+        ? (delta < 0 ? "کاهش هزینه برای خریدار" : "افزایش هزینه برای خریدار")
+        : (delta > 0 ? "افزایش دریافتی برای فروشنده" : "کاهش دریافتی برای فروشنده");
     document.getElementById("best-offer-leaders").textContent = format.format(siteOrder.length);
     document.getElementById("best-offer-points").textContent = format.format(points.length);
     const formatter = selectedRange === "24h" ? dateTime : dateOnly;
