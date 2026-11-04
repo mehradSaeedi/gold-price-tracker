@@ -669,6 +669,19 @@
       return `${formatted} تومان`;
     }
 
+    // /\\ Render the backend's per-quote age compactly; this value advances on each API poll.
+    function formatQuoteAge(ageSeconds) {
+      const seconds = Number(ageSeconds);
+      if (!Number.isFinite(seconds) || seconds < 0) return "زمان نامشخص";
+      const wholeSeconds = Math.floor(seconds);
+      if (wholeSeconds < 60) return `${numberFormat.format(wholeSeconds)} ثانیه پیش`;
+      const minutes = Math.floor(wholeSeconds / 60);
+      if (minutes < 60) return `${numberFormat.format(minutes)} دقیقه پیش`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${numberFormat.format(hours)} ساعت پیش`;
+      return `${numberFormat.format(Math.floor(hours / 24))} روز پیش`;
+    }
+
     // PROVIDER MINI-CHARTS HELPERS START: remove this block and its table hooks to roll back.
     function selectedProviderTrendGrams() {
       return Math.min(10000, Math.max(0.001, Number(document.getElementById("grams").value) || 1));
@@ -927,7 +940,7 @@
         return comparison || displayProviderName(a.site).localeCompare(displayProviderName(b.site), "fa");
       });
       const body = document.getElementById("comparison-rows");
-      body.replaceChildren(...rows.map((price) => {
+      const rowNodes = rows.map((price) => {
         const row = document.createElement("tr");
         const usableQuote = price.available && price.buy > 0 && price.sell > 0;
         if (!price.available) row.classList.add("pending-row");
@@ -974,16 +987,25 @@
         chartButton.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 15.5 7.2 11l3 2.4 6.8-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.8 5.4H17v4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         provider.append(chartButton);
         providerCell.append(provider);
+        const metadata = document.createElement("div");
+        metadata.className = "provider-metadata";
         const source = document.createElement("span");
         source.className = "source-detail";
         source.textContent = `منبع نرخ: ${displayQuoteSource(price.source)}`;
-        providerCell.append(source);
-        if (price.stale) {
+        metadata.append(source);
+        if (price.available) {
+          const age = document.createElement("span");
+          age.className = `quote-age${price.stale ? " quote-age-stale" : ""}`;
+          age.textContent = price.stale ? `قدیمی · ${formatQuoteAge(price.ageSeconds)}` : formatQuoteAge(price.ageSeconds);
+          age.title = price.stale ? "آخرین نرخ این ارائه‌دهنده قدیمی است" : "زمان دریافت آخرین نرخ";
+          metadata.append(age);
+        } else {
           const status = document.createElement("span");
-          status.className = "mt-1 block text-xs font-normal text-muted stale-status";
-          status.textContent = "داده قدیمی";
-          providerCell.append(status);
+          status.className = "quote-pending";
+          status.textContent = "در انتظار نرخ";
+          metadata.append(status);
         }
+        providerCell.append(metadata);
         row.append(providerCell);
 
         // Provider mini-chart column; remove with the isolated mini-chart helpers above.
@@ -1072,7 +1094,35 @@
         row.append(spreadCell);
 
         return row;
-      }));
+      });
+      const primaryRows = [], deferredRows = [];
+      rowNodes.forEach((row) => (row.classList.contains("stale-row") || row.classList.contains("pending-row") ? deferredRows : primaryRows).push(row));
+      const wasOpen = document.getElementById("provider-exceptions-disclosure")?.open ?? false;
+      const staleCount = prices.filter((price) => price.available && price.stale).length;
+      const pendingCount = prices.filter((price) => !price.available).length;
+      let disclosureRow = null;
+      if (deferredRows.length) {
+        disclosureRow = document.createElement("tr");
+        disclosureRow.className = "provider-exceptions-summary-row";
+        const disclosureCell = document.createElement("td");
+        disclosureCell.colSpan = 7;
+        const disclosure = document.createElement("details");
+        disclosure.id = "provider-exceptions-disclosure";
+        disclosure.className = "provider-exceptions-disclosure";
+        disclosure.open = wasOpen;
+        const summary = document.createElement("summary");
+        summary.textContent = `قدیمی: ${numberFormat.format(staleCount)} · بدون نرخ: ${numberFormat.format(pendingCount)}`;
+        disclosure.append(summary);
+        disclosureCell.append(disclosure);
+        disclosureRow.append(disclosureCell);
+        const setDeferredVisibility = () => deferredRows.forEach((row) => {
+          row.hidden = !disclosure.open;
+          row.style.display = disclosure.open ? "" : "none";
+        });
+        disclosure.ontoggle = setDeferredVisibility;
+        setDeferredVisibility();
+      }
+      body.replaceChildren(...primaryRows, ...(disclosureRow ? [disclosureRow, ...deferredRows] : []));
       // PROVIDER MINI-CHARTS HOOK: remove with the mini-chart feature.
       scheduleProviderTrends(prices);
     }
@@ -1106,7 +1156,7 @@
         renderDecisionSummary(prices, grams);
         renderComparisonTable(prices, grams);
         const updateTime = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
-        status.textContent = `آخرین به‌روزرسانی: ${updateTime}`;
+        status.textContent = `آخرین بررسی نرخ‌ها: ${updateTime}`;
       } catch (error) {
         status.textContent = "دریافت قیمت‌ها ناموفق بود؛ اتصال سرور را بررسی کنید.";
       }

@@ -23,6 +23,7 @@ type Price struct {
 	FetchedAt          time.Time  `json:"fetchedAt"`
 	Available          bool       `json:"available"`
 	Stale              bool       `json:"stale"`
+	AgeSeconds         int64      `json:"ageSeconds"`
 	// /\ A nil timestamp means the provider did not give us a quote time.
 }
 

@@ -14,11 +14,35 @@
     const hash = [...site].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0);
     return palette[(knownIndex >= 0 ? knownIndex : hash) % palette.length];
   }
-  let range = "24h", requestId = 0, selectedProvider = null;
+  let range = "24h", requestId = 0, selectedProvider = null, currentPrices = new Map(), livePricesLoaded = false;
   const sideControl = document.getElementById("best-offer-side");
   const chart = document.getElementById("best-offer-chart");
   const providerName = (site) => names[site] || site || "نامشخص";
   const toman = (amount) => `${format.format(Math.round(amount))} تومان`;
+  function formatQuoteAge(seconds) {
+    const value = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (value < 60) return `${format.format(value)} ثانیه پیش`;
+    const minutes = Math.floor(value / 60);
+    if (minutes < 60) return `${format.format(minutes)} دقیقه پیش`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${format.format(hours)} ساعت پیش`;
+    return `${format.format(Math.floor(hours / 24))} روز پیش`;
+  }
+  function updateChartFreshness() {
+    const site = chart.dataset.latestSite;
+    const price = currentPrices.get(site);
+    const indicator = document.getElementById("best-offer-provider");
+    indicator.textContent = !site
+      ? "ارائه‌دهنده نامشخص"
+      : !livePricesLoaded
+        ? providerName(site)
+        : !price?.available
+        ? `${providerName(site)} · نرخ فعلی در دسترس نیست`
+        : price.stale
+          ? `${providerName(site)} · نرخ قدیمی · دریافت: ${formatQuoteAge(price.ageSeconds)}`
+          : `${providerName(site)} · دریافت: ${formatQuoteAge(price.ageSeconds)}`;
+    indicator.title = `زمان دریافت آخرین نرخ ${providerName(site)}`;
+  }
   function priceScale(low, high) {
     const rawStep = (high - low) / 4 || Math.max(1, high * .001);
     const magnitude = 10 ** Math.floor(Math.log10(rawStep));
@@ -40,6 +64,10 @@
     document.getElementById("best-offer-empty").hidden = false;
     document.querySelector(".best-offer-chart-wrap").classList.add("is-empty");
     chart.classList.add("best-offer-chart-hidden");
+    chart.dataset.latestSite = "";
+    document.getElementById("best-offer-key-high").hidden = true;
+    document.getElementById("best-offer-key-low").hidden = true;
+    updateChartFreshness();
     document.getElementById("best-offer-legend").replaceChildren();
     document.getElementById("best-offer-y-axis").replaceChildren();
     ["best-offer-x-start", "best-offer-x-middle", "best-offer-x-end"].forEach((id) => { document.getElementById(id).textContent = ""; });
@@ -88,7 +116,7 @@
       label.replaceChildren();
       const caption = document.createElement("span"), value = document.createElement("strong");
       caption.textContent = title; value.textContent = format.format(Math.round(point.value));
-      label.append(caption, value); label.hidden = false;
+      label.append(caption, value); label.hidden = true;
       label.style.left = `${(point.x / 10).toFixed(2)}%`;
       label.style.top = `${(point.y / 2.5).toFixed(2)}%`;
       label.classList.toggle("is-right", point.x > 500);
@@ -113,9 +141,12 @@
     lineHost.replaceChildren(...segments);
     const legend = document.getElementById("best-offer-legend");
     const legendButtons = new Map();
-    let focusPoints = coords;
+    // Keep hover sampling on the complete best-offer curve. Provider selection dims
+    // other segments, but must not change the cursor's sampling domain: a provider may
+    // only win a few isolated intervals, which would otherwise make the marker snap or
+    // flatten when the pointer moves outside those intervals.
+    const focusPoints = coords;
     const applyProviderFocus = () => {
-      focusPoints = selectedProvider ? coords.filter((point) => point.site === selectedProvider) : coords;
       lineHost.querySelectorAll(".best-offer-segment").forEach((line) => {
         const active = !selectedProvider || line.dataset.site === selectedProvider;
         line.classList.toggle("is-highlighted", Boolean(selectedProvider) && active);
@@ -151,6 +182,9 @@
       lineHost.animate([{ opacity: .78 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
     }
     const dot = document.getElementById("best-offer-dot"); dot.setAttribute("cx", coords.at(-1).x); dot.setAttribute("cy", coords.at(-1).y);
+    dot.style.setProperty("stroke", colorFor.get(latest.site));
+    chart.dataset.latestSite = latest.site;
+    updateChartFreshness();
     const hoverRing = document.getElementById("best-offer-hover-ring");
     const crosshair = document.getElementById("best-offer-crosshair"), crosshairLevel = document.getElementById("best-offer-crosshair-level");
     const svgNode = (tag) => document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -182,7 +216,7 @@
     document.getElementById("best-offer-x-end").textContent = timeSpan ? axisFormatter.format(new Date(latest.time)) : "";
     document.getElementById("best-offer-empty").hidden = true; chart.classList.remove("best-offer-chart-hidden");
     chart.parentElement.parentElement.parentElement.classList.remove("is-empty");
-    let hoverFrame = 0, pendingClientX = 0, hoveredPointIndex = -1;
+    let hoverFrame = 0, pendingClientX = 0, hoveredSegmentIndex = -1;
     const tooltip = document.getElementById("best-offer-tooltip");
     const updateHover = () => {
       hoverFrame = 0;
@@ -197,20 +231,27 @@
       }
       const rightPoint = focusPoints[Math.min(lowIndex, focusPoints.length - 1)];
       const leftPoint = focusPoints[Math.max(0, lowIndex - 1)];
-      const point = Math.abs(rightPoint.x - x) < Math.abs(leftPoint.x - x) ? rightPoint : leftPoint;
       const cursorX = Math.max(left, Math.min(right, x));
       const spanX = rightPoint.x - leftPoint.x;
       const ratio = spanX ? Math.max(0, Math.min(1, (cursorX - leftPoint.x) / spanX)) : 0;
       const cursorY = leftPoint.y + (rightPoint.y - leftPoint.y) * ratio;
       const cursorValue = leftPoint.value + (rightPoint.value - leftPoint.value) * ratio;
+      const cursorTime = leftPoint.time + (rightPoint.time - leftPoint.time) * ratio;
+      // Each rendered segment takes the color of its ending point's provider.
+      const segmentSite = rightPoint.site;
+      const segmentColor = colorFor.get(segmentSite);
+      const hoverColor = selectedProvider && segmentSite !== selectedProvider ? "#aeb4bd" : segmentColor;
       crosshair.setAttribute("x1", cursorX); crosshair.setAttribute("x2", cursorX); crosshair.setAttribute("visibility", "visible");
       crosshairLevel.setAttribute("y1", cursorY); crosshairLevel.setAttribute("y2", cursorY); crosshairLevel.setAttribute("visibility", "visible");
-      const pointChanged = point.index !== hoveredPointIndex;
-      if (pointChanged) {
-        hoveredPointIndex = point.index;
-        hoverRing.setAttribute("stroke", colorFor.get(point.site)); hoverRing.setAttribute("visibility", "visible"); hoverRing.classList.add("is-active");
-        livePrice.style.setProperty("--live-price-color", colorFor.get(point.site));
-        tooltip.textContent = `${providerName(point.site)} · ${toman(point.value)} · ${dateTime.format(new Date(point.time))}`;
+      const segmentChanged = rightPoint.index !== hoveredSegmentIndex;
+      if (segmentChanged) {
+        hoveredSegmentIndex = rightPoint.index;
+        hoverRing.style.setProperty("stroke", hoverColor); hoverRing.style.color = hoverColor;
+        hoverRing.setAttribute("visibility", "visible"); hoverRing.classList.add("is-active");
+        livePrice.style.setProperty("--live-price-color", hoverColor);
+        dot.style.setProperty("stroke", hoverColor);
+        tooltip.style.setProperty("--provider-color", hoverColor);
+        tooltip.textContent = `${providerName(segmentSite)} · ${toman(cursorValue)} · ${dateTime.format(new Date(cursorTime))}`;
         tooltip.hidden = false;
       }
       setLivePrice(cursorValue, cursorY);
@@ -223,16 +264,21 @@
       tooltip.style.top = `${(cursorY / 2.5).toFixed(2)}%`;
     };
     chart.onpointermove = (event) => {
+      document.getElementById("best-offer-key-high").hidden = false;
+      document.getElementById("best-offer-key-low").hidden = lowPoint.value >= highPoint.value;
       pendingClientX = event.clientX;
       if (!hoverFrame) hoverFrame = requestAnimationFrame(updateHover);
     };
     chart.onpointerleave = () => {
+      document.getElementById("best-offer-key-high").hidden = true;
+      document.getElementById("best-offer-key-low").hidden = true;
       if (hoverFrame) cancelAnimationFrame(hoverFrame);
-      hoverFrame = 0; hoveredPointIndex = -1;
+      hoverFrame = 0; hoveredSegmentIndex = -1;
       tooltip.hidden = true; crosshair.setAttribute("visibility", "hidden"); crosshairLevel.setAttribute("visibility", "hidden");
       hoverRing.classList.remove("is-active"); window.setTimeout(() => { if (!hoverRing.classList.contains("is-active")) hoverRing.setAttribute("visibility", "hidden"); }, 150);
       setLivePrice(coords.at(-1).value, coords.at(-1).y);
       livePrice.style.setProperty("--live-price-color", colorFor.get(coords.at(-1).site));
+      dot.style.setProperty("stroke", colorFor.get(coords.at(-1).site));
       dot.setAttribute("cx", coords.at(-1).x); dot.setAttribute("cy", coords.at(-1).y);
     };
   }
@@ -249,6 +295,17 @@
     } catch (_) { if (currentRequest === requestId) showEmpty("دریافت تاریخچه پیشنهادها ناموفق بود؛ دوباره تلاش می‌کنیم."); }
   }
 
+  async function updateLivePrices() {
+    try {
+      const response = await fetch("/api/prices");
+      if (!response.ok) return;
+      const prices = await response.json();
+      currentPrices = new Map(prices.map((price) => [price.site, price]));
+      livePricesLoaded = true;
+      updateChartFreshness();
+    } catch (_) { /* Keep the last known freshness marker while the dashboard retries. */ }
+  }
+
   sideControl.addEventListener("change", load);
   document.querySelectorAll("[data-offer-range]").forEach((button) => button.addEventListener("click", () => {
     range = button.dataset.offerRange;
@@ -256,5 +313,5 @@
     load();
   }));
   document.getElementById("grams").addEventListener("change", load);
-  load(); setInterval(load, 60000);
+  load(); updateLivePrices(); setInterval(load, 60000); setInterval(updateLivePrices, 30000);
 })();

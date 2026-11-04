@@ -10,9 +10,36 @@
   const side = document.getElementById("history-side");
   let range = "24h";
   let requestId = 0;
+  let currentPrices = new Map();
 
   function formatPrice(value) { return number.format(Math.round(value)); }
   function setText(id, value) { document.getElementById(id).textContent = value; }
+  function formatQuoteAge(ageSeconds) {
+    const seconds = Number(ageSeconds);
+    if (!Number.isFinite(seconds) || seconds < 0) return "زمان نامشخص";
+    const wholeSeconds = Math.floor(seconds);
+    if (wholeSeconds < 60) return `${number.format(wholeSeconds)} ثانیه پیش`;
+    const minutes = Math.floor(wholeSeconds / 60);
+    if (minutes < 60) return `${number.format(minutes)} دقیقه پیش`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${number.format(hours)} ساعت پیش`;
+    return `${number.format(Math.floor(hours / 24))} روز پیش`;
+  }
+  function updateLiveFreshness() {
+    const indicator = document.getElementById("history-freshness");
+    const price = currentPrices.get(site.value);
+    const fresh = Boolean(price?.available && !price.stale), stale = Boolean(price?.available && price.stale);
+    indicator.classList.toggle("is-fresh", fresh);
+    indicator.classList.toggle("is-stale", stale);
+    indicator.textContent = !currentPrices.has(site.value)
+      ? "زمان دریافت نرخ نامشخص"
+      : !price?.available
+        ? "نرخ فعلی در دسترس نیست"
+        : price.stale
+          ? `نرخ قدیمی · آخرین دریافت: ${formatQuoteAge(price.ageSeconds)}`
+          : `آخرین دریافت: ${formatQuoteAge(price.ageSeconds)}`;
+    indicator.title = `زمان دریافت آخرین نرخ ${site.value || ""}`;
+  }
   function priceScale(low, high) {
     const rawStep = (high - low) / 4 || Math.max(1, high * .001);
     const magnitude = 10 ** Math.floor(Math.log10(rawStep));
@@ -33,6 +60,8 @@
     document.getElementById("history-empty").hidden = false;
     document.querySelector(".history-chart-wrap").classList.add("is-empty");
     document.getElementById("history-chart").classList.add("history-chart-hidden");
+    document.getElementById("history-key-high").hidden = true;
+    document.getElementById("history-key-low").hidden = true;
     document.getElementById("history-y-axis").replaceChildren();
     ["history-x-start", "history-x-middle", "history-x-end"].forEach((id) => setText(id, ""));
     ["history-latest", "history-change", "history-low", "history-high"].forEach((id) => setText(id, "—"));
@@ -69,7 +98,7 @@
       label.replaceChildren();
       const caption = document.createElement("span"), value = document.createElement("strong");
       caption.textContent = title; value.textContent = formatPrice(point.value);
-      label.append(caption, value); label.hidden = false;
+      label.append(caption, value); label.hidden = true;
       label.style.left = `${(point.x / 10).toFixed(2)}%`;
       label.style.top = `${(point.y / 2.5).toFixed(2)}%`;
       label.classList.toggle("is-right", point.x > 500);
@@ -123,6 +152,8 @@
     svg.parentElement.parentElement.parentElement.classList.remove("is-empty");
     document.getElementById("history-empty").hidden = true;
     svg.onpointermove = (event) => {
+      document.getElementById("history-key-high").hidden = false;
+      document.getElementById("history-key-low").hidden = lowPoint.value >= highPoint.value;
       const bounds = svg.getBoundingClientRect(), x = ((event.clientX - bounds.left) / bounds.width) * 1000;
       const point = coords.reduce((best, item) => Math.abs(item.x - x) < Math.abs(best.x - x) ? item : best, coords[0]);
       setLivePrice(point);
@@ -138,6 +169,8 @@
       tooltip.style.top = `${(point.y / 250) * svg.clientHeight}px`;
     };
     svg.onpointerleave = () => {
+      document.getElementById("history-key-high").hidden = true;
+      document.getElementById("history-key-low").hidden = true;
       document.getElementById("history-tooltip").hidden = true; crosshair.setAttribute("visibility", "hidden"); crosshairLevel.setAttribute("visibility", "hidden");
       hoverRing.classList.remove("is-active"); window.setTimeout(() => { if (!hoverRing.classList.contains("is-active")) hoverRing.setAttribute("visibility", "hidden"); }, 150);
       setLivePrice(coords.at(-1));
@@ -160,15 +193,17 @@
     try {
       const response = await fetch("/api/prices"); if (!response.ok) return;
       const prices = await response.json(), previous = site.value;
+      currentPrices = new Map(prices.map((price) => [price.site, price]));
       const names = { Milli: "میلی", WallGold: "وال‌گلد", Talano: "طلانو", Goldika: "گلدیکا", Talasea: "طلاسی", Taline: "طلاین", MelliGold: "ملی‌گلد", Hamrahgold: "همراه‌گلد", TapsiGold: "تپسی‌گلد", Invi: "اینوی", Myshemsh: "مای‌شمش", Gerami: "گرمی", "Snapp Sarmayeh": "اسنپ سرمایه", "Digi Gold": "دیجی‌گلد", Zarpin: "زرپین", Daric: "داریک", Zarafza: "زرافزا", Zarpay: "زرپی" };
       const available = prices.filter((price) => price.site).map((price) => price.site).sort();
       if (!available.length) return;
       site.replaceChildren(...available.map((name) => { const option = document.createElement("option"); option.value = name; option.textContent = names[name] || name; return option; }));
       site.value = available.includes(previous) ? previous : available[0];
+      updateLiveFreshness();
       if (site.dataset.ready !== "true") { site.dataset.ready = "true"; load(); }
     } catch (_) { /* Keep the last usable provider selection while the regular dashboard retries. */ }
   }
-  site.addEventListener("change", load); side.addEventListener("change", load);
+  site.addEventListener("change", () => { updateLiveFreshness(); load(); }); side.addEventListener("change", load);
   document.querySelectorAll("[data-history-range]").forEach((button) => button.addEventListener("click", () => {
     range = button.dataset.historyRange;
     document.querySelectorAll("[data-history-range]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));

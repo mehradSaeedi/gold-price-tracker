@@ -138,9 +138,19 @@ func validFee(fee *scraper.Fee) bool {
 // /\ Return a snapshot for the dashboard API.
 func (s *priceStore) list() []scraper.Price {
 	s.mu.RLock()
+
+	now := time.Now()
 	prices := make([]scraper.Price, 0, len(s.prices))
+
 	for _, price := range s.prices {
-		price.Stale = !price.Available || price.FetchedAt.IsZero() || time.Since(price.FetchedAt) > staleAfter
+		if !price.FetchedAt.IsZero() {
+			price.AgeSeconds = int64(now.Sub(price.FetchedAt).Seconds())
+		}
+
+		price.Stale = !price.Available ||
+			price.FetchedAt.IsZero() ||
+			now.Sub(price.FetchedAt) > staleAfter
+
 		prices = append(prices, price)
 	}
 	s.mu.RUnlock()

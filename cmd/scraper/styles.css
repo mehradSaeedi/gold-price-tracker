@@ -125,6 +125,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .comparison-table .provider-logo { width: 22px; height: 22px; flex: none; }
 .comparison-table .provider-name { display: block; min-width: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .comparison-table .provider-chart-button { width: 27px; height: 27px; min-width: 27px; flex: none; }
+.provider-metadata { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin-top: 3px; }
+.provider-metadata .source-detail { display: inline; min-width: 0; margin-top: 0; font-size: 9px; line-height: 1.45; }
+.quote-age, .quote-pending { display: inline-flex; align-items: center; border-radius: 999px; padding: 1px 6px; color: #a8bcae; background: rgba(71,199,139,.09); font-size: 9px; font-weight: 500; line-height: 1.5; white-space: nowrap; }
+.quote-age-stale { color: #d2b86f; background: rgba(208,167,78,.12); }
+.quote-pending { color: #898d96; background: rgba(255,255,255,.045); }
+.provider-exceptions-summary-row td { border-bottom-color: #30343b; padding-block: 2px; background: transparent; }
+.provider-exceptions-disclosure summary { display: flex; min-height: 26px; align-items: center; justify-content: space-between; gap: 12px; color: #898e97; cursor: pointer; font-size: 10px; list-style: none; transition: color 140ms ease; }
+.provider-exceptions-disclosure summary::-webkit-details-marker { display: none; }
+.provider-exceptions-disclosure summary::marker { content: ""; }
+.provider-exceptions-disclosure summary::after { width: 6px; height: 6px; flex: none; transform: rotate(45deg); margin: -3px 2px 0 0; border-inline-end: 1px solid #737983; border-bottom: 1px solid #737983; content: ""; transition: transform 160ms ease,border-color 160ms ease; }
+.provider-exceptions-disclosure summary:hover, .provider-exceptions-disclosure[open] summary { color: #c7ad68; }
+.provider-exceptions-disclosure[open] summary::after { transform: rotate(225deg); margin-top: 3px; border-color: #c7ad68; }
 /* PROVIDER MINI-CHARTS START: isolated comparison-table trend styles; remove to roll back. */
 .comparison-table .trend-column { width: 140px; min-width: 140px; text-align: center; }
 .comparison-table th.trend-column { color: #8e949e; font-size: 10px; }
