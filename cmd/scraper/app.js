@@ -33,6 +33,8 @@
     let activeTrendRequests = 0;
     const providerTrendRefreshMs = 5 * 60 * 1000;
     let providerTrendSide = "buy";
+    let providerTrendPeriod = "24h";
+    let providerTrendPrices = [];
     let providerTrendScheduleTimer = 0;
     let expandedProviderTrend = "";
     const providerTrendDateFormat = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -82,20 +84,29 @@
     // /\ TradingView's chart asks this adapter for its supported resolutions and stored bars.
     const supportedResolutions = ["1", "5", "15", "60", "1D"];
     // /\\ Make the chart pane match the surrounding dashboard, including when TradingView restores old preferences.
-    const darkChartOverrides = {
-      "paneProperties.background": "#181a1f",
+    const chartOverridesForTheme = (theme = document.documentElement.dataset.theme || "dark") => {
+      const light = theme === "light";
+      return {
+      "paneProperties.background": light ? "#F3F5F8" : "#151B24",
       "paneProperties.backgroundType": "solid",
-      "paneProperties.vertGridProperties.color": "#292c32",
-      "paneProperties.horzGridProperties.color": "#292c32",
-      "scalesProperties.textColor": "#a8abb2",
-      "scalesProperties.lineColor": "#3a3d44",
-      "mainSeriesProperties.candleStyle.upColor": "#47c78b",
-      "mainSeriesProperties.candleStyle.downColor": "#ee777d",
-      "mainSeriesProperties.candleStyle.borderUpColor": "#47c78b",
-      "mainSeriesProperties.candleStyle.borderDownColor": "#ee777d",
-      "mainSeriesProperties.candleStyle.wickUpColor": "#47c78b",
-      "mainSeriesProperties.candleStyle.wickDownColor": "#ee777d",
+      "paneProperties.vertGridProperties.color": light ? "#CDD5E0" : "#2A3442",
+      "paneProperties.horzGridProperties.color": light ? "#CDD5E0" : "#2A3442",
+      "scalesProperties.textColor": light ? "#566276" : "#A7B0BE",
+      "scalesProperties.lineColor": light ? "#CDD5E0" : "#2A3442",
+      "mainSeriesProperties.candleStyle.upColor": light ? "#16734F" : "#36B37E",
+      "mainSeriesProperties.candleStyle.downColor": light ? "#B64C47" : "#E47770",
+      "mainSeriesProperties.candleStyle.borderUpColor": light ? "#16734F" : "#36B37E",
+      "mainSeriesProperties.candleStyle.borderDownColor": light ? "#B64C47" : "#E47770",
+      "mainSeriesProperties.candleStyle.wickUpColor": light ? "#16734F" : "#36B37E",
+      "mainSeriesProperties.candleStyle.wickDownColor": light ? "#B64C47" : "#E47770",
+      };
     };
+    window.addEventListener("dashboard-theme-change", (event) => {
+      const theme = event.detail?.theme === "light" ? "light" : "dark";
+      if (!widget) return;
+      const overrides = chartOverridesForTheme(theme);
+      widget.changeTheme(theme).then(() => widget.applyOverrides(overrides)).catch(() => {});
+    });
     // /\ Show time-axis labels using the Persian calendar while keeping time ticks in UTC as TradingView expects.
     // const persianAxisFormats = {
     //   Year: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", timeZone: "UTC" }),
@@ -390,7 +401,7 @@
         //   },
         // },
         autosize: true,
-        theme: "dark",
+        theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
         // / Show the drawing toolbar in fullscreen, and leave the rest of the library features at their defaults.
         enabled_features: ["side_toolbar_in_fullscreen_mode"],
         // /\ Hide TradingView search controls; provider comparisons use the dashboard's site picker.
@@ -406,18 +417,19 @@
           ],
         },
         save_load_adapter: saveLoadAdapter,
-        overrides: { ...darkChartOverrides, "mainSeriesProperties.priceAxisProperties.autoScale": true },
-        loading_screen: { backgroundColor: "#181a1f", foregroundColor: "#d0a74e" },
+        overrides: { ...chartOverridesForTheme(), "mainSeriesProperties.priceAxisProperties.autoScale": true },
+        loading_screen: { backgroundColor: document.documentElement.dataset.theme === "light" ? "#F3F5F8" : "#151B24", foregroundColor: document.documentElement.dataset.theme === "light" ? "#805B17" : "#D6A84F" },
       });
       widget.onChartReady(() => {
         // /\\ A saved TradingView preference can restore a light pane, so reapply the dashboard theme after loading.
-        widget.changeTheme("dark")
+        const chartTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+        widget.changeTheme(chartTheme)
           .then(() => {
-            widget.applyOverrides(darkChartOverrides);
+            widget.applyOverrides(chartOverridesForTheme(chartTheme));
             return widget.activeChart().setResolution("5");
           })
           .catch(() => {
-            document.getElementById("chart-status").textContent = "تنظیم ظاهر تیره نمودار انجام نشد.";
+            document.getElementById("chart-status").textContent = "تنظیم ظاهر نمودار انجام نشد.";
           })
           .finally(() => {
             widgetReady = true;
@@ -630,11 +642,14 @@
         if (roundedDifference > 0) {
           heading.textContent = "سود احتمالی";
           amount.classList.add("opportunity-positive");
-          amount.textContent = `+ ${formatToman(roundedDifference)}`;
+          amount.textContent = formatToman(roundedDifference);
         } else if (roundedDifference < 0) {
           heading.textContent = "زیان احتمالی";
           amount.classList.add("opportunity-negative");
-          amount.textContent = `− ${formatToman(Math.abs(roundedDifference))}`;
+          const signedValue = document.createElement("bdi");
+          signedValue.dir = "ltr";
+          signedValue.textContent = `− ${numberFormat.format(Math.abs(roundedDifference))}`;
+          amount.replaceChildren(signedValue, document.createTextNode(" تومان"));
         } else {
           heading.textContent = "اختلاف خالص";
           amount.textContent = formatToman(0);
@@ -687,8 +702,8 @@
       return Math.min(10000, Math.max(0.001, Number(document.getElementById("grams").value) || 1));
     }
 
-    function providerTrendCacheKey(site, grams = selectedProviderTrendGrams()) {
-      return `${site}:${grams}`;
+    function providerTrendCacheKey(site, grams = selectedProviderTrendGrams(), period = providerTrendPeriod) {
+      return `${site}:${grams}:${period}`;
     }
 
     function providerTrendKey(site, grams = selectedProviderTrendGrams(), side = providerTrendSide) {
@@ -726,7 +741,8 @@
         : favorable
           ? (providerTrendSide === "buy" ? "بهتر برای خریدار" : "بهتر برای فروشنده")
           : (providerTrendSide === "buy" ? "هزینه بیشتر برای خریدار" : "دریافتی کمتر برای فروشنده");
-      svg.setAttribute("aria-label", `روند قیمت ${sideLabel} در ۲۴ ساعت: ${decimalNumberFormat.format(trend.change)} درصد؛ ${consequence}`);
+      const periodLabel = providerTrendPeriod === "1h" ? "یک ساعت" : "۲۴ ساعت";
+      svg.setAttribute("aria-label", `روند قیمت ${sideLabel} در ${periodLabel}: ${decimalNumberFormat.format(trend.change)} درصد؛ ${consequence}`);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", pathData);
       path.setAttribute("class", "provider-trend-line");
@@ -772,9 +788,10 @@
 
     function pumpProviderTrendQueue() {
       while (activeTrendRequests < 3 && providerTrendQueue.length) {
-        const { site, grams, key } = providerTrendQueue.shift();
+        const { site, grams, period, key } = providerTrendQueue.shift();
         activeTrendRequests += 1;
-        const params = new URLSearchParams({ site, interval: "1h", limit: "24", grams: String(grams), from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() });
+        const isHourly = period === "1h";
+        const params = new URLSearchParams({ site, interval: isHourly ? "5m" : "1h", limit: isHourly ? "12" : "24", grams: String(grams), from: new Date(Date.now() - (isHourly ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000)).toISOString() });
         fetch(`/api/candles?${params}`)
           .then((response) => {
             if (!response.ok) throw new Error("Could not load provider trend");
@@ -810,13 +827,14 @@
     }
 
     function scheduleProviderTrends(prices) {
+      providerTrendPrices = prices;
       window.clearTimeout(providerTrendScheduleTimer);
       providerTrendScheduleTimer = window.setTimeout(() => {
         const grams = selectedProviderTrendGrams(), now = Date.now();
         // Drop queued requests for an order size that the user has already replaced.
-        const retainedRequests = providerTrendQueue.filter((request) => request.grams === grams);
+        const retainedRequests = providerTrendQueue.filter((request) => request.grams === grams && request.period === providerTrendPeriod);
         for (const request of providerTrendQueue) {
-          if (request.grams !== grams) providerTrendInFlight.delete(request.key);
+          if (request.grams !== grams || request.period !== providerTrendPeriod) providerTrendInFlight.delete(request.key);
         }
         providerTrendQueue.splice(0, providerTrendQueue.length, ...retainedRequests);
         for (const { site } of prices) {
@@ -825,7 +843,7 @@
           const cached = providerTrendCache.get(key);
           if (providerTrendInFlight.has(key) || (cached && (now - cached.fetchedAt < providerTrendRefreshMs || now < cached.retryAfter))) continue;
           providerTrendInFlight.add(key);
-          providerTrendQueue.push({ site, grams, key });
+          providerTrendQueue.push({ site, grams, period: providerTrendPeriod, key });
         }
         pumpProviderTrendQueue();
       }, 700);
@@ -1203,15 +1221,50 @@
           : "سبز: بهتر برای فروشنده";
       });
     });
+    document.querySelectorAll("[data-provider-trend-period]").forEach((button) => {
+      button.addEventListener("click", () => {
+        providerTrendPeriod = button.dataset.providerTrendPeriod;
+        document.querySelectorAll("[data-provider-trend-period]").forEach((item) => {
+          item.setAttribute("aria-pressed", String(item === button));
+        });
+        expandedProviderTrend = "";
+        updateProviderTrendCells();
+        scheduleProviderTrends(providerTrendPrices);
+      });
+    });
     const marketTabs = [...document.querySelectorAll("[data-market-tab]")];
+    const marketTabList = document.querySelector(".analytics-tabs");
+    const reducedTabMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    function positionMarketTabIndicator(tab, animate = true) {
+      if (!marketTabList || !tab) return;
+      if (!animate || reducedTabMotion.matches) marketTabList.classList.add("analytics-tabs-no-motion");
+      marketTabList.style.setProperty("--analytics-indicator-x", `${tab.offsetLeft}px`);
+      marketTabList.style.setProperty("--analytics-indicator-width", `${tab.offsetWidth}px`);
+      if (!animate || reducedTabMotion.matches) requestAnimationFrame(() => marketTabList.classList.remove("analytics-tabs-no-motion"));
+    }
+    positionMarketTabIndicator(marketTabs.find((tab) => tab.getAttribute("aria-selected") === "true"), false);
+    window.addEventListener("resize", () => {
+      positionMarketTabIndicator(marketTabs.find((tab) => tab.getAttribute("aria-selected") === "true"), false);
+    });
     function activateMarketTab(view) {
       const activeTab = marketTabs.find((tab) => tab.dataset.marketTab === view);
       if (!activeTab) return;
+      const wasSelected = activeTab.getAttribute("aria-selected") === "true";
+      if (wasSelected && (view !== "chart" || chartInitialized)) return;
       for (const tab of marketTabs) {
         const selected = tab === activeTab;
         tab.setAttribute("aria-selected", String(selected));
         tab.tabIndex = selected ? 0 : -1;
         document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+      }
+      positionMarketTabIndicator(activeTab);
+      const panel = document.getElementById(activeTab.getAttribute("aria-controls"));
+      if (!reducedTabMotion.matches && panel.animate) {
+        const animation = panel.animate(
+          [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 230, easing: "cubic-bezier(.2,.72,.2,1)" }
+        );
+        animation.onfinish = () => animation.cancel();
       }
       if (view === "chart") initializeChart();
     }

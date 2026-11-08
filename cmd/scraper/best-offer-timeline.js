@@ -240,7 +240,9 @@
       // Each rendered segment takes the color of its ending point's provider.
       const segmentSite = rightPoint.site;
       const segmentColor = colorFor.get(segmentSite);
-      const hoverColor = selectedProvider && segmentSite !== selectedProvider ? "#aeb4bd" : segmentColor;
+      const hoverColor = selectedProvider && segmentSite !== selectedProvider
+        ? getComputedStyle(document.documentElement).getPropertyValue("--color-text-muted").trim()
+        : segmentColor;
       crosshair.setAttribute("x1", cursorX); crosshair.setAttribute("x2", cursorX); crosshair.setAttribute("visibility", "visible");
       crosshairLevel.setAttribute("y1", cursorY); crosshairLevel.setAttribute("y2", cursorY); crosshairLevel.setAttribute("visibility", "visible");
       const segmentChanged = rightPoint.index !== hoveredSegmentIndex;

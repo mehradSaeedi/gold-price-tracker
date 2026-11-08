@@ -17,6 +17,7 @@
   let latestModel = null;
   let mounted = false;
   let expanded = false;
+  let detailsAnimation = null;
 
   const money = value => Number.isFinite(value) ? `${number.format(Math.round(value))} تومان` : "—";
   const motionReduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -170,7 +171,30 @@
     expanded = !expanded;
     const details = root.querySelector(".dr-details");
     const trigger = root.querySelector(".dr-summary");
-    if (details) details.hidden = !expanded;
+    if (details) {
+      if (detailsAnimation) detailsAnimation.cancel();
+      if (expanded) {
+        details.hidden = false;
+        if (!motionReduced() && details.animate) {
+          detailsAnimation = details.animate(
+            [{ height: "0px", opacity: 0, transform: "translateY(-5px)" }, { height: `${details.scrollHeight}px`, opacity: 1, transform: "translateY(0)" }],
+            { duration: 240, easing: "cubic-bezier(.2,.72,.22,1)" }
+          );
+          detailsAnimation.onfinish = () => { detailsAnimation = null; };
+        }
+      } else if (!motionReduced() && details.animate) {
+        detailsAnimation = details.animate(
+          [{ height: `${details.getBoundingClientRect().height}px`, opacity: 1, transform: "translateY(0)" }, { height: "0px", opacity: 0, transform: "translateY(-5px)" }],
+          { duration: 190, easing: "cubic-bezier(.2,.72,.22,1)" }
+        );
+        detailsAnimation.onfinish = () => {
+          details.hidden = true;
+          detailsAnimation = null;
+        };
+      } else {
+        details.hidden = !expanded;
+      }
+    }
     if (trigger) trigger.setAttribute("aria-expanded", String(expanded));
   }
   function historicalMarketSeries(providerCandles) {
@@ -253,20 +277,33 @@
   function candleChart(candles) {
     if (!candles.length) return `<p class="dr-no-chart">کندل مرجع بازار با پوشش کافی موجود نیست.</p>`;
     candles = aggregateCandles(candles);
-    const width = 780, height = 190, padding = 18;
+    const width = 780, height = 190;
     const min = Math.min(...candles.map(candle => candle.low));
     const max = Math.max(...candles.map(candle => candle.high));
     const span = max - min || 1;
-    const x = index => padding + (width - 2 * padding) * (index + .5) / candles.length;
-    const y = value => height - padding - (value - min) / span * (height - 2 * padding);
-    const step = (width - 2 * padding) / candles.length;
-    const bars = candles.map((candle, index) => {
-      const color = candle.close >= candle.open ? "#52bf95" : "#d97981";
-      const bodyWidth = Math.max(2, Math.min(8, step * .56));
-      const label = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit" }).format(new Date(candle.timestamp));
-      return `<g stroke="${color}" fill="${color}" stroke-linecap="round"><path d="M${x(index)} ${y(candle.high)}V${y(candle.low)}" stroke-width="1.4"/><rect x="${x(index)-bodyWidth/2}" y="${Math.min(y(candle.open), y(candle.close))}" width="${bodyWidth}" height="${Math.max(2, Math.abs(y(candle.open)-y(candle.close)))}" rx="1.2"/><title>${label} · ${number.format(candle.contributors)} پلتفرم</title></g>`;
+    const plot = { left: 14, right: 680, top: 16, bottom: 151 };
+    const firstTime = candles[0].timestamp, lastTime = candles[candles.length - 1].timestamp;
+    const timeSpan = Math.max(1, lastTime - firstTime);
+    const x = timestamp => firstTime === lastTime ? (plot.left + plot.right) / 2 : plot.left + (plot.right - plot.left) * (timestamp - firstTime) / timeSpan;
+    const y = value => plot.bottom - (value - min) / span * (plot.bottom - plot.top);
+    const bodyWidth = Math.max(2, Math.min(9, (plot.right - plot.left) * 15 * 60_000 / Math.max(timeSpan, 15 * 60_000) * .58));
+    const priceTicks = [max, (max + min) / 2, min];
+    const priceLabels = priceTicks.map(value => `<span style="top:${y(value) / height * 100}%">${number.format(Math.round(value))}</span>`).join("");
+    const timeIndexes = [...new Set([0, Math.floor((candles.length - 1) / 2), candles.length - 1])];
+    const timeFormat = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit" });
+    const timeLabels = timeIndexes.map((index, labelIndex) => {
+      const candle = candles[index];
+      const alignment = timeIndexes.length === 1 ? "dr-time-single" : labelIndex === 0 ? "dr-time-start" : labelIndex === timeIndexes.length - 1 ? "dr-time-end" : "dr-time-middle";
+      return `<span class="${alignment}" style="left:${x(candle.timestamp) / width * 100}%">${timeFormat.format(new Date(candle.timestamp))}</span>`;
     }).join("");
-    return `<div class="dr-chart-wrap"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="کندل‌های میانه بازار برای قیمت خرید امروز" preserveAspectRatio="none"><path class="dr-chart-grid" d="M${padding} ${padding}H${width-padding}M${padding} ${height/2}H${width-padding}M${padding} ${height-padding}H${width-padding}"/>${bars}</svg></div>`;
+    const bars = candles.map(candle => {
+      const directionClass = candle.close >= candle.open ? "dr-candle-up" : "dr-candle-down";
+      const candleX = x(candle.timestamp);
+      const label = timeFormat.format(new Date(candle.timestamp));
+      return `<g class="${directionClass}" stroke="currentColor" fill="currentColor" stroke-linecap="round"><path d="M${candleX} ${y(candle.high)}V${y(candle.low)}" stroke-width="1.4"/><rect x="${candleX-bodyWidth/2}" y="${Math.min(y(candle.open), y(candle.close))}" width="${bodyWidth}" height="${Math.max(2, Math.abs(y(candle.open)-y(candle.close)))}" rx="1.2"/><title>${label} · ${number.format(candle.contributors)} پلتفرم</title></g>`;
+    }).join("");
+    const grid = priceTicks.map(value => `M${plot.left} ${y(value)}H${plot.right}`).join("");
+    return `<div class="dr-chart-wrap"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="کندل‌های میانه بازار برای قیمت خرید امروز" preserveAspectRatio="none"><path class="dr-chart-grid" d="${grid}"/>${bars}</svg><div class="dr-price-axis" aria-hidden="true">${priceLabels}</div><div class="dr-time-axis" aria-hidden="true">${timeLabels}</div></div>`;
   }
   async function refreshHistoricalCandles() {
     const sites = [...new Set(latestPrices.map(price => price.site).filter(Boolean))].sort();

@@ -5,14 +5,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        ink: "#f0f1f3",
-        muted: "#9a9da5",
-        line: "#2c2f35",
-        paper: "#101114",
-        panel: "#181a1f",
-        accent: "#d0a74e",
-        buy: "#47c78b",
-        sell: "#ee777d",
+        ink: "var(--color-text)",
+        muted: "var(--color-text-muted)",
+        line: "var(--color-border)",
+        paper: "var(--color-bg)",
+        panel: "var(--color-surface)",
+        accent: "var(--color-gold)",
+        buy: "var(--color-positive)",
+        sell: "var(--color-negative)",
       },
       boxShadow: { panel: "0 12px 36px rgba(0, 0, 0, .16)" },
     },
