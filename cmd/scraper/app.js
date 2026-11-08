@@ -1153,6 +1153,7 @@
         }
         updateChartSites(prices);
         const grams = Math.min(10000, Math.max(0.001, Number(document.getElementById("grams").value) || 1));
+        window.dispatchEvent(new CustomEvent("gold-prices-updated", { detail: { prices, grams } }));
         renderDecisionSummary(prices, grams);
         renderComparisonTable(prices, grams);
         const updateTime = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/chart-overlays.css">
   <link rel="stylesheet" href="/history-overview.css">
   <link rel="stylesheet" href="/best-offer-timeline.css">
+  <link rel="stylesheet" href="/daily-range.css">
 </head>
 <body class="min-h-screen bg-paper text-ink antialiased">
   <main class="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 lg:px-8">
@@ -56,6 +57,8 @@
         <p id="opportunity-detail" class="mt-2 text-xs text-muted">برآورد برای وزن انتخاب‌شده، پس از کارمزدهای شناخته‌شده</p>
       </article>
     </section>
+
+    <section id="daily-range" class="dr-widget" aria-label="بازه قیمت روزانه خرید طلای ۱۸ عیار" hidden></section>
 
     <!-- /\ One scrollable table keeps each provider's buy, sell, fee, and spread values on the same row. -->
     <section class="overflow-hidden rounded-2xl border border-line bg-panel shadow-panel" aria-labelledby="comparison-title">
@@ -244,10 +247,12 @@
       </section>
       </div>
     </section>
+
   </main>
   <script src="/charting_library/charting_library.standalone.js" defer></script>
   <script src="/history-overview.js" defer></script>
   <script src="/best-offer-timeline.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/daily-range.js" defer></script>
 </body>
 </html>

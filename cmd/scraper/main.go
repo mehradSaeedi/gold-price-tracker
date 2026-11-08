@@ -25,7 +25,7 @@ import (
 
 // /\ Bundle the dashboard and chart assets so the server can run from any working directory.
 //
-//go:embed index.html app.js history-overview.js best-offer-timeline.js app.css styles.css chart-overlays.css history-overview.css best-offer-timeline.css fonts charting_library
+//go:embed index.html app.js daily-range.js history-overview.js best-offer-timeline.js app.css styles.css chart-overlays.css daily-range.css history-overview.css best-offer-timeline.css fonts charting_library
 var page embed.FS
 
 type gzipResponseWriter struct {
@@ -99,6 +99,29 @@ func acceptsGzip(header string) bool {
 type priceStore struct {
 	mu     sync.RWMutex
 	prices map[string]scraper.Price
+}
+
+type providerHealth struct {
+	// Status              string     `json:"status"`
+	LastAttemptAt       *time.Time `json:"lastAttemptAt"`
+	LastSuccessAt       *time.Time `json:"lastSuccessAt"`
+	LastError           string     `json:"lastError,omitempty"`
+	LastErrorAt         *time.Time `json:"lastErrorAt,omitempty"`
+	ConsecutiveFailures int        `json:"consecutiveFailures,omitempty"`
+	Site                string     `json:"site"`
+}
+
+type healthStore struct {
+	mu        sync.RWMutex
+	providers map[string]providerHealth
+}
+
+func newHealthStore(sites []string) *healthStore {
+	providers := make(map[string]providerHealth, len(sites))
+	for _, site := range sites {
+		providers[site] = providerHealth{Site: site}
+	}
+	return &healthStore{providers: providers}
 }
 
 const staleAfter = 90 * time.Second
