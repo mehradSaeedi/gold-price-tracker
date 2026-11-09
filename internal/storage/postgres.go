@@ -102,6 +102,38 @@ func (p *Postgres) SaveObservation(ctx context.Context, price scraper.Price) err
 	return err
 }
 
+func (p *Postgres) UnchangedSince(
+	ctx context.Context,
+	site string,
+	buy int64,
+	sell int64,
+) (time.Time, error) {
+	var since time.Time
+
+	err := p.pool.QueryRow(ctx, `
+		SELECT fetched_at
+		FROM price_observations
+		WHERE site = $1 
+			AND id > COALESCE(
+				(
+					SELECT id
+					FROM price_observations
+					WHERE site = $1	
+						AND (buy_toman <> $2 OR sell_toman <> $3)
+					ORDER BY id DESC
+					LIMIT 1
+				),
+				0
+			)
+			AND buy_toman = $2
+			AND sell_toman = $3
+		ORDER BY id ASC
+		LIMIT 1
+	`, site, buy, sell).Scan(&since)
+
+	return since, err
+}
+
 // /\ Candles adjusts each raw quote for its known fees before grouping the values into OHLC buckets.
 func (p *Postgres) Candles(ctx context.Context, site, interval string, seconds int64, from, to *time.Time, limit int, grams float64) ([]Candle, error) {
 	if seconds <= 0 || limit <= 0 || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {

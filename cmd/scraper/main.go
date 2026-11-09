@@ -125,7 +125,10 @@ func newHealthStore(sites []string) *healthStore {
 	return &healthStore{providers: providers}
 }
 
-const staleAfter = 90 * time.Second
+const (
+	staleAfter     = 90 * time.Second
+	unchangedAfter = 12 * time.Hour
+)
 
 // /\ Keep the latest price from each site for the dashboard.
 func newPriceStore(sites []string) *priceStore {
@@ -155,6 +158,22 @@ func (s *priceStore) set(price scraper.Price) (scraper.Price, error) {
 	return price, nil
 }
 
+func (s *priceStore) setUnchangedSince(site string, since time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	price, ok := s.prices[site]
+	if !ok {
+		return
+	}
+
+	now := time.Now()
+	price.UnchangedSince = &since
+	price.UnchangedSeconds = int64(now.Sub(since).Seconds())
+	price.Unchanged = now.Sub(since) >= unchangedAfter
+	s.prices[site] = price
+}
+
 func validFee(fee *scraper.Fee) bool {
 	return fee == nil || (fee.Rate >= 0 && fee.Rate <= 1 && fee.FixedToman >= 0)
 }
@@ -174,6 +193,16 @@ func (s *priceStore) list() []scraper.Price {
 		price.Stale = !price.Available ||
 			price.FetchedAt.IsZero() ||
 			now.Sub(price.FetchedAt) > staleAfter
+
+		if price.UnchangedSince != nil {
+			unchangedFor := now.Sub(*price.UnchangedSince)
+			if unchangedFor < 0 {
+				unchangedFor = 0
+			}
+
+			price.UnchangedSeconds = int64(unchangedFor.Seconds())
+			price.Unchanged = unchangedFor >= unchangedAfter
+		}
 
 		prices = append(prices, price)
 	}
@@ -214,11 +243,24 @@ func recordPrice(price scraper.Price, store *priceStore, database *storage.Postg
 	if err != nil {
 		return fmt.Errorf("invalid quote: %w", err)
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
 	if err := database.SaveObservation(ctx, price); err != nil {
 		return fmt.Errorf("save quote to PostgreSQL: %w", err)
 	}
+
+	unchangedSince, err := database.UnchangedSince(ctx, price.Site, price.Buy, price.Sell)
+	if err != nil {
+		return fmt.Errorf("find unchanged quote start: %w", err)
+	}
+
+	// The order is important: SaveObservation appends the new quote first;
+	// UnchangedSince then finds the beginning of that exact buy/sell run,
+	// including history from before a restart.
+	store.setUnchangedSince(price.Site, unchangedSince)
+
 	return nil
 }
 

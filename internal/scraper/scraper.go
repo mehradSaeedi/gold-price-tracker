@@ -19,8 +19,11 @@ type Price struct {
 	Change24h          float64    `json:"change24h,omitempty"`
 	UnitType           string     `json:"unitType,omitempty"`
 	SourceUnitType     string     `json:"sourceUnitType,omitempty"`
-	Timestamp          *time.Time `json:"timestamp,omitempty"`
 	FetchedAt          time.Time  `json:"fetchedAt"`
+	Timestamp          *time.Time `json:"timestamp,omitempty"`
+	UnchangedSince     *time.Time `json:"unchangedSince,omitempty"`
+	UnchangedSeconds   int64      `json:"unchangedSeconds"`
+	Unchanged          bool       `json:"unchanged"`
 	Available          bool       `json:"available"`
 	Stale              bool       `json:"stale"`
 	AgeSeconds         int64      `json:"ageSeconds"`
