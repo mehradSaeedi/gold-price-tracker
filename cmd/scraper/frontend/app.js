@@ -118,7 +118,9 @@
     // };
     // /\ TradingView requests an exact history count as well as a time range; cap each request to the API's 2,000-bar limit.
     const maxHistoryBarsPerRequest = 2000;
+    const marketMedianSite = "__market_median__";
     const subscriptions = new Map();
+    let chartProviderSites = [];
     // /\ Remember the latest direction per provider and side so the last move stays visible between refreshes.
     const quoteMovements = new Map();
     // /\ Start with the best effective buy estimate; each sortable column can choose its own natural direction.
@@ -156,6 +158,7 @@
     // /\ Map the selected controls to a distinct symbol so changing site or fee side reloads the chart.
     function selectedSymbol() {
       const { site, side, grams } = chartSelection();
+      if (site === marketMedianSite) return `GPM_MARKET_MEDIAN_BUY_${grams}`;
       // /\\ TradingView gets a plain ASCII key; Persian names stay in the chart's visible title.
       const siteKey = site.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
       return site ? `GPT_${siteKey}_${side.toUpperCase()}_${grams}` : "";
@@ -163,6 +166,8 @@
 
     // /\ Saved chart names carry the selected series, so reopening a layout restores its site and fee side too.
     function selectionForSymbol(symbolName) {
+      const marketMedianMatch = /^GPM_MARKET_MEDIAN_BUY_([0-9]+(?:\.[0-9]+)?)$/i.exec(symbolName || "");
+      if (marketMedianMatch) return { site: marketMedianSite, side: "buy", grams: Number(marketMedianMatch[1]), marketMedian: true };
       const internalMatch = /^GP(T|C)_(.+)_(BUY|SELL)_([0-9]+(?:\.[0-9]+)?)$/i.exec(symbolName || "");
       if (internalMatch) {
         const site = Object.keys(providerDisplayNames).find((name) =>
@@ -226,6 +231,7 @@
 
     // /\ Ask the existing endpoint for one requested time range and convert its candles to TradingView bars.
     async function loadBars(selection, resolution, from, to, limit = 2000) {
+      if (selection.marketMedian) return loadMarketMedianBars(selection, resolution, from, to, limit);
       const interval = apiInterval(resolution);
       // Keep SQL work proportional to the bars TradingView can display; otherwise its
       // broad initial history request makes the API aggregate years of observations.
@@ -255,6 +261,69 @@
       return { bars, candles, interval };
     }
 
+    // Build the TradingView market series from the same fee-aware provider candles used by the range widget.
+    function median(values) {
+      const sorted = [...values].sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+    function robustMedian(values) {
+      const valid = values.filter(Number.isFinite);
+      if (valid.length < 3) return null;
+      const center = median(valid), mad = median(valid.map(value => Math.abs(value - center)));
+      const filtered = mad === 0
+        ? valid.filter(value => value === center)
+        : valid.filter(value => Math.abs(value - center) <= 4.5 * 1.4826 * mad);
+      return filtered.length < 3 ? null : median(filtered);
+    }
+    async function loadMarketMedianBars(selection, resolution, from, to, limit) {
+      const interval = apiInterval(resolution);
+      const secondsPerBar = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400 }[interval];
+      const boundedTo = Number.isFinite(to) ? to : Math.floor(Date.now() / 1000);
+      const requestedFrom = Number.isFinite(from) ? from : boundedTo - limit * secondsPerBar;
+      const boundedFrom = Math.max(requestedFrom, boundedTo - limit * secondsPerBar);
+      if (!chartProviderSites.length) return { bars: [], candles: [], interval };
+      const responses = await Promise.allSettled(chartProviderSites.map(async site => {
+        const params = new URLSearchParams({
+          site, interval, grams: String(selection.grams), limit: String(limit),
+          from: new Date(boundedFrom * 1000).toISOString(),
+          to: new Date(boundedTo * 1000).toISOString(),
+        });
+        const response = await fetch(`/api/candles?${params}`);
+        if (!response.ok) throw new Error(`خطای دریافت کندل ${displayProviderName(site)}`);
+        const candles = await response.json();
+        if (!Array.isArray(candles)) throw new Error("قالب کندل بازار معتبر نیست.");
+        return candles;
+      }));
+      const byTime = new Map();
+      for (const result of responses) {
+        if (result.status !== "fulfilled") continue;
+        for (const candle of result.value) {
+          const timestamp = Date.parse(candle.timestamp);
+          const buy = candle.buy || {};
+          const values = [buy.open, buy.high, buy.low, buy.close].map(Number);
+          const [open, high, low, close] = values;
+          if (!candle.buyFeesKnown || !Number.isFinite(timestamp) || !values.every(Number.isFinite)
+            || low <= 0 || high < low || open < low || open > high || close < low || close > high) continue;
+          if (!byTime.has(timestamp)) byTime.set(timestamp, []);
+          byTime.get(timestamp).push({ open, high, low, close });
+        }
+      }
+      const candles = [];
+      for (const [time, rows] of byTime) {
+        const candle = { time };
+        let complete = true;
+        for (const field of ["open", "high", "low", "close"]) {
+          const value = robustMedian(rows.map(row => row[field]));
+          if (value == null) { complete = false; break; }
+          candle[field] = value;
+        }
+        if (!complete || candle.high < Math.max(candle.open, candle.close) || candle.low > Math.min(candle.open, candle.close)) continue;
+        candles.push(candle);
+      }
+      candles.sort((a, b) => a.time - b.time);
+      return { bars: candles, candles, interval };
+    }
+
     // /\ Keep this widget datafeed small: all historical data still comes from our PostgreSQL-backed API.
     const datafeed = {
       onReady(callback) {
@@ -277,15 +346,15 @@
           document.getElementById("chart-status").textContent = "برای نمایش نمودار، ابتدا دریافت قیمت یک ارائه‌دهنده را منتظر بمانید.";
           return;
         }
-        if (!selection.comparison) {
+        if (!selection.comparison && !selection.marketMedian) {
           const siteSelect = document.getElementById("chart-site");
           if ([...siteSelect.options].some((option) => option.value === site)) siteSelect.value = site;
           document.getElementById("chart-side").value = side;
           document.getElementById("grams").value = String(grams);
         }
         setTimeout(() => onResolve({
-          name: site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"}` : "قیمت طلا",
-          full_name: site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"} · ${decimalNumberFormat.format(grams)} گرم` : "قیمت طلا",
+          name: selection.marketMedian ? "میانه بازار · خرید" : site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"}` : "قیمت طلا",
+          full_name: selection.marketMedian ? `میانه بازار طلای ۱۸ عیار · خرید · ${decimalNumberFormat.format(grams)} گرم` : site ? `${displayProviderName(site)} · ${side === "buy" ? "خرید" : "فروش"} · ${decimalNumberFormat.format(grams)} گرم` : "قیمت طلا",
           ticker: symbolName,
           description: "قیمت هر گرم طلای ۱۸ عیار به تومان",
           type: "commodity",
@@ -324,7 +393,7 @@
           isFirstCall = legacyFirstCall;
         }
         const selection = selectionForSymbol(_symbolInfo.ticker || _symbolInfo.name);
-        if (!selection.site) {
+        if (!selection.site && !selection.marketMedian) {
           onResult([], { noData: true });
           return;
         }
@@ -346,6 +415,11 @@
           if (isFirstCall && bars.length === 0) {
             ({ bars } = await loadBars(selection, resolution, null, null));
           }
+          if (selection.marketMedian) {
+            document.getElementById("chart-status").textContent = bars.length
+              ? ""
+              : "برای این بازه، کندل معتبر از دست‌کم سه پلتفرم پیدا نشد.";
+          }
           onResult(bars, { noData: bars.length === 0 });
         } catch (error) {
           onError(error.message || "دریافت داده‌های نمودار ناموفق بود.");
@@ -356,7 +430,7 @@
         const interval = apiInterval(resolution);
         const intervalSeconds = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400 }[interval];
         const refresh = async () => {
-          if (!selection.site) return;
+          if (!selection.site && !selection.marketMedian) return;
           const now = Math.floor(Date.now() / 1000);
           try {
             const { bars } = await loadBars(selection, resolution, now - intervalSeconds * 3, now + intervalSeconds, 1);
@@ -441,9 +515,13 @@
 
     // /\ Reload the series when the user changes site, buy or sell side, or order size.
     function syncChartSymbol() {
+      const selection = chartSelection();
+      const sideControl = document.getElementById("chart-side");
+      sideControl.disabled = selection.site === marketMedianSite;
+      if (selection.site === marketMedianSite) sideControl.value = "buy";
       if (!widgetReady) return;
       const symbol = selectedSymbol();
-      if (!chartSelection().site || !symbol) return;
+      if (!selection.site || !symbol) return;
       if (symbol === displayedSymbol) {
         syncComparisonStudies();
         return;
@@ -516,17 +594,23 @@
       const select = document.getElementById("chart-site");
       const host = document.getElementById("chart-sites");
       const sites = [...new Set(prices.map((price) => price.site).filter(Boolean))].sort();
+      chartProviderSites = sites;
       const previous = select.value;
       const previousSelection = new Set([...host.querySelectorAll("input:checked")].map((input) => input.value));
       if (!sites.length) return;
-      select.replaceChildren(...sites.map((site) => {
+      const options = sites.map((site) => {
         const option = document.createElement("option");
         option.value = site;
         option.textContent = displayProviderName(site);
         return option;
-      }));
+      });
+      const marketMedianOption = document.createElement("option");
+      marketMedianOption.value = marketMedianSite;
+      marketMedianOption.textContent = "میانه همه پلتفرم‌ها";
+      options.push(marketMedianOption);
+      select.replaceChildren(...options);
       select.disabled = false;
-      if (sites.includes(previous)) select.value = previous;
+      if (previous === marketMedianSite || sites.includes(previous)) select.value = previous;
       else select.value = sites[0];
       host.replaceChildren(...sites.map((site) => {
         const label = document.createElement("label");
@@ -1278,3 +1362,19 @@
         next.focus(); next.click();
       });
     }
+    window.addEventListener("gold-open-market-median-chart", (event) => {
+      const select = document.getElementById("chart-site");
+      if (![...select.options].some((option) => option.value === marketMedianSite)) return;
+      select.value = marketMedianSite;
+      document.getElementById("chart-side").value = "buy";
+      const grams = Number(event.detail?.grams);
+      if (Number.isFinite(grams) && grams >= .001 && grams <= 10000) {
+        document.getElementById("grams").value = String(grams);
+      }
+      syncChartSymbol();
+      activateMarketTab("chart");
+      document.getElementById("chart-panel").scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    });

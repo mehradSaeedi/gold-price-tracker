@@ -413,7 +413,11 @@ html[data-theme="light"] .history-overview,html[data-theme="light"] .best-offer-
 #daily-range .dr-metrics span { color: var(--color-text-secondary); font-size: 10px; }
 #daily-range .dr-metrics b { font-size: 13px; font-weight: 650; }
 #daily-range .dr-chart-section h3 { align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb,var(--color-copper) 18%,var(--color-border)); font-size: 12px; }
-#daily-range .dr-chart-wrap { border-radius: 2px; background: linear-gradient(180deg,var(--color-raised),var(--color-bg)); box-shadow: inset 0 1px rgba(255,255,255,.025); }
+#daily-range .dr-chart-link { display: block; border-radius: 2px; cursor: pointer; }
+#daily-range .dr-chart-wrap { border-radius: 2px; background: linear-gradient(180deg,var(--color-raised),var(--color-bg)); box-shadow: inset 0 1px rgba(255,255,255,.025); transition: transform 180ms cubic-bezier(.2,.72,.22,1),border-color 180ms ease,box-shadow 180ms ease; }
+#daily-range .dr-chart-link:hover .dr-chart-wrap,#daily-range .dr-chart-link:focus-visible .dr-chart-wrap { transform: translateY(-2px); border-color: color-mix(in srgb,var(--color-copper) 48%,var(--color-border)); box-shadow: inset 0 1px rgba(255,255,255,.04),0 6px 14px var(--color-shadow); }
+#daily-range .dr-chart-link:focus-visible { outline: 2px solid var(--color-gold); outline-offset: 3px; }
+#daily-range .dr-chart-link:focus:not(:focus-visible) { outline: none; }
 #daily-range .dr-chart-grid { stroke: var(--color-grid); stroke-dasharray: 2 5; }
 #daily-range .dr-price-axis,#daily-range .dr-time-axis { color: var(--color-text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 html[data-theme="light"] #daily-range .dr-card { background: radial-gradient(ellipse at 82% 0%,color-mix(in srgb,var(--color-copper) 4%,transparent),transparent 48%),linear-gradient(145deg,color-mix(in srgb,var(--color-gold) 3%,var(--color-surface)),var(--color-surface) 48%,var(--color-raised)); }
@@ -429,6 +433,12 @@ html[data-theme="light"] #daily-range .dr-chart-wrap { box-shadow: inset 0 1px r
   #daily-range .dr-metrics article { padding: 10px 8px; }
   #daily-range .dr-metrics b { font-size: 12px; }
   #daily-range .dr-detail-range { padding-inline: 0; }
+  #daily-range .dr-chart-section h3 { align-items: center; flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #daily-range .dr-chart-wrap { transition: none; }
+  #daily-range .dr-chart-link:hover .dr-chart-wrap,#daily-range .dr-chart-link:focus-visible .dr-chart-wrap { transform: none; }
 }
 
 /* Carry the instrument scale into the analytics chart bay without changing chart behavior. */

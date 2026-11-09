@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"math"
 	"net/http"
@@ -25,7 +26,7 @@ import (
 
 // /\ Bundle the dashboard and chart assets so the server can run from any working directory.
 //
-//go:embed index.html app.js daily-range.js history-overview.js best-offer-timeline.js app.css styles.css chart-overlays.css daily-range.css history-overview.css best-offer-timeline.css fonts charting_library
+//go:embed frontend fonts charting_library
 var page embed.FS
 
 type gzipResponseWriter struct {
@@ -515,7 +516,13 @@ func main() {
 			log.Printf("encode best offers: %v", err)
 		}
 	})
-	http.Handle("/", chartAssetHandler(http.FileServer(http.FS(page))))
+	frontend, err := fs.Sub(page, "frontend")
+	if err != nil {
+		log.Fatalf("open embedded frontend: %v", err)
+	}
+	http.Handle("/charting_library/", chartAssetHandler(http.FileServer(http.FS(page))))
+	http.Handle("/fonts/", http.FileServer(http.FS(page)))
+	http.Handle("/", http.FileServer(http.FS(frontend)))
 
 	log.Println("Dashboard available at http://localhost:8080")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))

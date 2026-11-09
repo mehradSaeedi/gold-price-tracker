@@ -1,6 +1,6 @@
 /** /\ Scan the existing Go-served page and its JavaScript for the utility classes we use. */
 module.exports = {
-  content: ["./index.html", "./app.js"],
+  content: ["./frontend/index.html", "./frontend/app.js"],
   corePlugins: { preflight: false },
   theme: {
     extend: {

@@ -117,7 +117,7 @@
       <div class="dr-metrics"><article><span>${belowLow ? "فاصله پایین‌تر از کف امروز" : "فاصله از کف امروز"}</span><b data-metric="above">${money(belowLow ? Math.abs(data.aboveLow) : data.aboveLow)}</b></article>
       <article><span>${aboveHigh ? "فاصله بالاتر از سقف امروز" : "فاصله تا سقف امروز"}</span><b data-metric="below">${money(aboveHigh ? Math.abs(data.belowHigh) : data.belowHigh)}</b></article>
       <article><span>کل بازه قیمت</span><b data-metric="span">${money(data.high - data.low)}</b></article><article><span>پلتفرم‌های مرجع</span><b data-metric="count">${number.format(data.count)}</b></article></div>
-      <section class="dr-chart-section"><h3>کندل مرجع بازار <small>میانه قیمت خرید · هر ۱۵ دقیقه</small></h3>${candleChart(data.candles)}</section>`;
+      <section class="dr-chart-section"><h3><span>کندل مرجع بازار <small>میانه قیمت خرید · هر ۱۵ دقیقه</small></span></h3><div class="dr-chart-link" role="button" tabindex="0" aria-label="نمایش کندل مرجع بازار در نمودار تحلیلی">${candleChart(data.candles)}</div></section>`;
   }
   function setText(node, value, highlight = false) {
     if (!node || node.textContent === value) return;
@@ -139,6 +139,17 @@
     if (!mounted) {
       root.innerHTML = cardMarkup(data);
       root.querySelector(".dr-summary").addEventListener("click", toggleExpanded);
+      const chartLink = root.querySelector(".dr-chart-link");
+      const openMedianChart = () => {
+        window.dispatchEvent(new CustomEvent("gold-open-market-median-chart", { detail: { grams } }));
+      };
+      chartLink.addEventListener("click", openMedianChart);
+      chartLink.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openMedianChart();
+        }
+      });
       mounted = true;
     } else {
       const priceChanged = Number.isFinite(previousPrice) && Math.round(previousPrice) !== Math.round(data.current);
