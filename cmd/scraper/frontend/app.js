@@ -291,8 +291,28 @@ const sortState = { key: "buyPrice", direction: "asc" };
     }
 
     // /\\ Keep the alternate landscape tied to the same fee-adjusted offer values used by the table's best-offer ranking.
+    let pinnedLandscapeProvider = "";
+    let hoveredLandscapeProvider = "";
+    let focusedLandscapeProvider = "";
+    function applyLandscapeSpotlight() {
+      const landscape = document.getElementById("price-landscape");
+      const activeProvider = pinnedLandscapeProvider || focusedLandscapeProvider || hoveredLandscapeProvider;
+      landscape.classList.toggle("has-spotlight", Boolean(activeProvider));
+      for (const row of landscape.querySelectorAll(".landscape-provider")) {
+        const active = row.dataset.provider === activeProvider;
+        row.classList.toggle("is-spotlight", active);
+        row.classList.toggle("is-pinned", Boolean(pinnedLandscapeProvider) && row.dataset.provider === pinnedLandscapeProvider);
+        row.setAttribute("aria-pressed", String(Boolean(pinnedLandscapeProvider) && row.dataset.provider === pinnedLandscapeProvider));
+      }
+    }
+    function toggleLandscapePin(row) {
+      pinnedLandscapeProvider = pinnedLandscapeProvider === row.dataset.provider ? "" : row.dataset.provider;
+      applyLandscapeSpotlight();
+    }
     function renderPriceLandscape(rows, grams, bestBuy, bestSell, changedQuoteKeys = new Set()) {
       const landscape = document.getElementById("price-landscape");
+      const focusedRow = document.activeElement?.closest?.(".landscape-provider");
+      const focusedProviderToRestore = landscape.contains(focusedRow) && focusedRow.matches(":focus-visible") ? focusedRow.dataset.provider : "";
       const previousScores = new Map([...landscape.querySelectorAll(".landscape-track-fill[data-bar-key]")]
         .map((fill) => [fill.dataset.barKey, fill.style.getPropertyValue("--landscape-score")]));
       const candidates = { buy: [], sell: [] };
@@ -309,6 +329,13 @@ const sortState = { key: "buyPrice", direction: "asc" };
       const items = rows.map((price) => {
         const item = document.createElement("article");
         item.className = "landscape-provider";
+        item.dataset.provider = price.site;
+        item.tabIndex = 0;
+        item.setAttribute("role", "button");
+        item.setAttribute("aria-pressed", String(pinnedLandscapeProvider === price.site));
+        const hasQuote = price.available && price.buy > 0 && price.sell > 0;
+        const stateLabel = !price.available ? "در انتظار نرخ" : price.stale ? "نرخ قدیمی" : "نرخ به‌روز";
+        item.setAttribute("aria-label", `تمرکز روی ${displayProviderName(price.site)}؛ ${stateLabel}؛ خرید ${hasQuote ? formatToman(price.buy) : "ناموجود"}؛ فروش ${hasQuote ? formatToman(price.sell) : "ناموجود"}`);
         if (!price.available) item.classList.add("is-pending");
         else if (price.stale) item.classList.add("is-stale");
 
@@ -336,7 +363,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
           track.append(label);
           const quote = document.createElement("span");
           quote.className = "landscape-track-quote number";
-          const validQuote = price.available && price.buy > 0 && price.sell > 0 && price[side] > 0;
+          const validQuote = hasQuote && price[side] > 0;
           quote.textContent = validQuote ? formatToman(price[side]) : "—";
           track.append(quote);
 
@@ -395,13 +422,19 @@ const sortState = { key: "buyPrice", direction: "asc" };
         const disclosure = document.createElement("details");
         disclosure.id = "price-landscape-exceptions";
         disclosure.className = "provider-exceptions-disclosure landscape-exceptions-disclosure";
-        disclosure.open = wasOpen;
+        const activeProvider = pinnedLandscapeProvider || focusedLandscapeProvider || hoveredLandscapeProvider;
+        disclosure.open = wasOpen || deferredItems.some((item) => item.dataset.provider === activeProvider);
         const summary = document.createElement("summary");
         summary.textContent = `قدیمی: ${numberFormat.format(staleCount)} · بدون نرخ: ${numberFormat.format(pendingCount)}`;
         disclosure.append(summary, ...deferredItems);
         children.push(disclosure);
       }
       landscape.replaceChildren(...children);
+      applyLandscapeSpotlight();
+      if (focusedProviderToRestore) {
+        const restoredRow = [...landscape.querySelectorAll(".landscape-provider")].find((row) => row.dataset.provider === focusedProviderToRestore);
+        restoredRow?.focus({ preventScroll: true });
+      }
       const transitioningBars = [...landscape.querySelectorAll(".landscape-track-fill.is-transitioning")];
       if (transitioningBars.length) {
         transitioningBars.forEach((fill) => { void fill.offsetWidth; });
@@ -809,6 +842,50 @@ const sortState = { key: "buyPrice", direction: "asc" };
         scroll.setAttribute("aria-label", isLandscape ? "نمای بصری مقایسه قیمت ارائه‌دهندگان" : "جدول قابل پیمایش افقی");
         scroll.tabIndex = isLandscape ? -1 : 0;
       });
+    });
+    const priceLandscape = document.getElementById("price-landscape");
+    priceLandscape.addEventListener("pointerover", (event) => {
+      if (event.pointerType === "touch") return;
+      const row = event.target.closest(".landscape-provider");
+      if (!row || row.contains(event.relatedTarget)) return;
+      hoveredLandscapeProvider = row.dataset.provider;
+      applyLandscapeSpotlight();
+    });
+    priceLandscape.addEventListener("pointerout", (event) => {
+      if (event.pointerType === "touch") return;
+      const row = event.target.closest(".landscape-provider");
+      if (!row || row.contains(event.relatedTarget)) return;
+      if (hoveredLandscapeProvider === row.dataset.provider) hoveredLandscapeProvider = "";
+      applyLandscapeSpotlight();
+    });
+    priceLandscape.addEventListener("focusin", (event) => {
+      const row = event.target.closest(".landscape-provider");
+      focusedLandscapeProvider = row?.matches(":focus-visible") ? row.dataset.provider : "";
+      applyLandscapeSpotlight();
+    });
+    priceLandscape.addEventListener("focusout", (event) => {
+      const row = event.target.closest(".landscape-provider");
+      if (!row || row.contains(event.relatedTarget)) return;
+      if (focusedLandscapeProvider === row.dataset.provider) focusedLandscapeProvider = "";
+      applyLandscapeSpotlight();
+    });
+    priceLandscape.addEventListener("click", (event) => {
+      const row = event.target.closest(".landscape-provider");
+      if (row) toggleLandscapePin(row);
+    });
+    priceLandscape.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const row = event.target.closest(".landscape-provider");
+      if (!row) return;
+      event.preventDefault();
+      row.click();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !pinnedLandscapeProvider) return;
+      pinnedLandscapeProvider = "";
+      hoveredLandscapeProvider = "";
+      focusedLandscapeProvider = "";
+      applyLandscapeSpotlight();
     });
     // /\ Let keyboard and mouse users sort by the real numeric values behind each displayed price or fee.
     document.querySelectorAll("button[data-sort-key]").forEach((button) => {

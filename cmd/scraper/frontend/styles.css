@@ -551,14 +551,18 @@ html[data-theme="light"] .comparison-table tbody tr:hover,html[data-theme="light
 .comparison-view-toggle button:focus-visible { outline: 2px solid var(--color-violet); outline-offset: 2px; }
 .comparison-table[hidden],#price-landscape[hidden],.table-scroll-hint[hidden] { display: none !important; }
 .price-landscape { display: grid; gap: 0; padding-inline: 10px; }
-.landscape-provider { display: grid; grid-template-columns: minmax(140px,.62fr) repeat(2,minmax(0,1fr)); align-items: center; gap: 12px; border-bottom: 1px solid color-mix(in srgb,var(--color-border) 78%,transparent); padding: 11px 8px; transition: background-color 160ms ease; }
-.landscape-provider:hover,.landscape-provider:focus-within { background: color-mix(in srgb,var(--layer-nested) 72%,transparent); }
+.landscape-provider { display: grid; grid-template-columns: minmax(140px,.62fr) repeat(2,minmax(0,1fr)); align-items: center; gap: 12px; border-bottom: 1px solid color-mix(in srgb,var(--color-border) 78%,transparent); padding: 11px 8px; cursor: pointer; transition: opacity 180ms ease,background-color 180ms ease,box-shadow 180ms ease; }
+.landscape-provider:focus-visible { outline: 2px solid color-mix(in srgb,var(--color-violet) 72%,var(--color-copper)); outline-offset: -2px; }
+.price-landscape.has-spotlight .landscape-provider:not(.is-spotlight) { opacity: .82; }
+.landscape-provider.is-spotlight { background: color-mix(in srgb,var(--layer-nested) 94%,var(--color-copper) 6%); box-shadow: inset -2px 0 color-mix(in srgb,var(--color-gold) 68%,var(--color-copper)); }
 .landscape-provider-heading { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .landscape-provider-name { overflow: hidden; color: var(--color-text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .landscape-provider-state { color: var(--color-text-muted); font-size: 10px; line-height: 1.4; }
 .landscape-provider.is-stale .landscape-provider-state { color: var(--color-warning); }
 .landscape-tracks { display: contents; }
-.landscape-track { display: grid; min-width: 0; grid-template-columns: auto minmax(0,1fr) auto; align-items: baseline; gap: 2px 8px; border-inline-start: 1px solid var(--color-border); padding-inline-start: 12px; }
+.landscape-track { display: grid; min-width: 0; grid-template-columns: auto minmax(0,1fr) auto; align-items: baseline; gap: 2px 8px; border-inline-start: 1px solid var(--color-border); padding-inline-start: 12px; transition: background-color 180ms ease; }
+.landscape-provider.is-spotlight .landscape-track { border-radius: 2px; background: color-mix(in srgb,var(--layer-nested) 90%,var(--color-copper) 10%); }
+.landscape-provider.is-spotlight .landscape-track-fill:not(.is-best) { opacity: .86; }
 .landscape-track-label { grid-column: 1; color: var(--color-text-muted); font-size: 10px; }
 .landscape-track-quote { grid-column: 2; color: var(--color-text); font-size: 12px; font-weight: 550; white-space: nowrap; }
 .landscape-track.is-best .landscape-track-quote { color: var(--color-gold); }
@@ -596,6 +600,6 @@ html[data-theme="light"] .comparison-table tbody tr:hover,html[data-theme="light
   .comparison-view-toggle button { padding-inline: 8px; }
 }
 @media(prefers-reduced-motion:reduce) {
-  .comparison-view-toggle button,.landscape-provider,.landscape-track-fill { transition: none; }
+  .comparison-view-toggle button,.landscape-provider,.landscape-track,.landscape-track-fill { transition: none; }
   .landscape-track.has-price-update { animation: none; }
 }
