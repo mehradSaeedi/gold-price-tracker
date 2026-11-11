@@ -6,7 +6,7 @@
   const dateOnly = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", month: "short", day: "numeric" });
   const timeOnly = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit" });
   const ranges = { "24h": { ms: 86400000, interval: "15m", limit: 96 }, "7d": { ms: 7 * 86400000, interval: "1h", limit: 168 }, "30d": { ms: 30 * 86400000, interval: "1d", limit: 30 } };
-  const names = { Milli: "میلی", WallGold: "وال‌گلد", Talano: "طلانو", Goldika: "گلدیکا", Talasea: "طلاسی", Taline: "طلاین", MelliGold: "ملی‌گلد", Hamrahgold: "همراه‌گلد", TapsiGold: "تپسی‌گلد", Invi: "اینوی", Myshemsh: "مای‌شمش", Gerami: "گرمی", "Snapp Sarmayeh": "اسنپ سرمایه", "Digi Gold": "دیجی‌گلد", Zarpin: "زرپین", Daric: "داریک", Zarafza: "زرافزا", Zarpay: "زرپی" };
+  const names = { Milli: "میلی", WallGold: "وال‌گلد", Talano: "طلانو", Goldika: "گلدیکا", Talasea: "طلاسی", Taline: "طلاین", MelliGold: "ملی‌گلد", Ecogold: "اکوگلد", Digikala: "دیجی‌کالا", Hamrahgold: "همراه‌گلد", TapsiGold: "تپسی‌گلد", Invi: "اینوی", Myshemsh: "مای‌شمش", Gerami: "گرمی", "Snapp Sarmayeh": "اسنپ سرمایه", "Digi Gold": "دیجی‌گلد", Zarpin: "زرپین", Daric: "داریک", Zarafza: "زرافزا", Zarpay: "زرپی" };
   const palette = ["#63d6a0", "#e5bd62", "#8d79db", "#56a9d8", "#ed8588", "#d985bd", "#8bbd65", "#dc9561", "#6dc4c8", "#a8a0ed", "#d8cd67", "#6d91d0", "#cf7e70", "#7db99b", "#b48bdb", "#c2a36f"];
   const providerOrder = Object.keys(names);
   function colorForProvider(site) {

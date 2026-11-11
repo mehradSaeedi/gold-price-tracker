@@ -41,3 +41,9 @@
 .best-offer-ranges button[aria-pressed="true"] { background: var(--color-violet); box-shadow: none; color: var(--color-text); }
 .best-offer-ranges button:hover { color: var(--color-text); }
 .best-offer-stats article:first-child strong { color: var(--color-text); }
+
+/* Shared weight and numeral treatment for the provider history workspace. */
+.best-offer-stats article strong { font-weight: 600; font-variant-numeric: lining-nums tabular-nums; }
+.best-offer-axis-label,.best-offer-tooltip { font-variant-numeric: lining-nums tabular-nums; }
+.best-offer-controls label { font-weight: 500; line-height: 1.6; }
+.best-offer-legend span { font-weight: 450; line-height: 1.5; }

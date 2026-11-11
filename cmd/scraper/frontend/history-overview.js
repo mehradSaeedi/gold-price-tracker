@@ -194,7 +194,7 @@
       const response = await fetch("/api/prices"); if (!response.ok) return;
       const prices = await response.json(), previous = site.value;
       currentPrices = new Map(prices.map((price) => [price.site, price]));
-      const names = { Milli: "میلی", WallGold: "وال‌گلد", Talano: "طلانو", Goldika: "گلدیکا", Talasea: "طلاسی", Taline: "طلاین", MelliGold: "ملی‌گلد", Hamrahgold: "همراه‌گلد", TapsiGold: "تپسی‌گلد", Invi: "اینوی", Myshemsh: "مای‌شمش", Gerami: "گرمی", "Snapp Sarmayeh": "اسنپ سرمایه", "Digi Gold": "دیجی‌گلد", Zarpin: "زرپین", Daric: "داریک", Zarafza: "زرافزا", Zarpay: "زرپی" };
+      const names = { Milli: "میلی", WallGold: "وال‌گلد", Talano: "طلانو", Goldika: "گلدیکا", Talasea: "طلاسی", Taline: "طلاین", MelliGold: "ملی‌گلد", Ecogold: "اکوگلد", Digikala: "دیجی‌کالا", Hamrahgold: "همراه‌گلد", TapsiGold: "تپسی‌گلد", Invi: "اینوی", Myshemsh: "مای‌شمش", Gerami: "گرمی", "Snapp Sarmayeh": "اسنپ سرمایه", "Digi Gold": "دیجی‌گلد", Zarpin: "زرپین", Daric: "داریک", Zarafza: "زرافزا", Zarpay: "زرپی" };
       const available = prices.filter((price) => price.site).map((price) => price.site).sort();
       if (!available.length) return;
       site.replaceChildren(...available.map((name) => { const option = document.createElement("option"); option.value = name; option.textContent = names[name] || name; return option; }));

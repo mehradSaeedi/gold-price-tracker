@@ -57,7 +57,14 @@
           <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.2 15.1A8.4 8.4 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
         </button>
-        <p id="status" class="rounded-full border border-line bg-panel px-3 py-2 text-xs text-muted" role="status" aria-live="polite">در حال دریافت قیمت‌ها…</p>
+        <p id="status" class="rounded-full border border-line bg-panel px-3 py-2 text-xs text-muted" data-feed-state="loading" role="status" aria-live="polite">
+          <span id="status-message">در حال دریافت قیمت‌ها…</span>
+          <span id="status-check" class="status-check" hidden>
+            <svg class="status-clock-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.1" stroke="currentColor" stroke-width="1.35"/><path d="M10 5.8v4.5l3 1.8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="status-check-label">آخرین بررسی نرخ‌ها</span>
+            <time id="status-time"></time>
+          </span>
+        </p>
       </div>
     </header>
 
@@ -80,18 +87,21 @@
       </div>
       <section class="decision-summary" role="group" aria-label="بهترین قیمت‌های فعلی و اختلاف احتمالی">
       <article class="decision-card decision-buy">
+        <span class="summary-cursor-light" aria-hidden="true"></span>
         <p id="best-buy-heading" class="decision-label text-xs font-bold text-muted">کمترین هزینه خرید</p>
         <p id="best-buy-provider" class="mt-2 text-sm font-semibold">در انتظار قیمت‌ها…</p>
         <p id="best-buy-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums text-buy">—</p>
         <p id="best-buy-detail" class="mt-2 text-xs text-muted">برای وزن انتخاب‌شده، با احتساب کارمزد</p>
       </article>
       <article class="decision-card decision-sell">
+        <span class="summary-cursor-light" aria-hidden="true"></span>
         <p id="best-sell-heading" class="decision-label text-xs font-bold text-muted">بیشترین دریافتی فروش</p>
         <p id="best-sell-provider" class="mt-2 text-sm font-semibold">در انتظار قیمت‌ها…</p>
         <p id="best-sell-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums text-sell">—</p>
         <p id="best-sell-detail" class="mt-2 text-xs text-muted">برای وزن انتخاب‌شده، پس از کسر کارمزد</p>
       </article>
       <article class="decision-card decision-opportunity">
+        <span class="summary-cursor-light" aria-hidden="true"></span>
         <p id="opportunity-heading" class="decision-label text-xs font-bold text-muted">سود احتمالی</p>
         <p id="opportunity-route" class="mt-2 text-sm font-semibold">در انتظار نرخ‌های معتبر</p>
         <p id="opportunity-amount" class="decision-amount mt-1 text-2xl font-bold tabular-nums">—</p>

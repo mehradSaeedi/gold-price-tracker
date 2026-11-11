@@ -328,6 +328,7 @@ func main() {
 	store := newPriceStore([]string{
 		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
 		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Daric", "Zarafza", "Zarpay", "Zarpin",
+		"Ecogold", "Digikala",
 	})
 
 	fetchers := []struct {
@@ -349,6 +350,8 @@ func main() {
 		{"Zarpay", "Zarpay public API", scraper.ZarpayScraper{Client: client}},
 		{"Zarpin", "Zarpin public API", scraper.ZarpinScraper{Client: client}},
 		{"Gerami", "Gerami public API", scraper.GeramiScraper{Client: client}},
+		{"Ecogold", "Ecogold public API", scraper.EcogoldScraper{Client: client}},
+		{"Digikala", "Digikala public API", scraper.DigikalaScraper{Client: client}},
 	}
 	if snappFetcher != nil {
 		fetchers = append(fetchers, struct {

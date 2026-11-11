@@ -452,6 +452,25 @@ html[data-theme="light"] #daily-range .dr-chart-wrap { box-shadow: inset 0 1px r
 .history-crosshair,.history-crosshair-level,.best-offer-crosshair,.best-offer-crosshair-level { stroke: color-mix(in srgb,var(--color-copper) 68%,var(--color-text-secondary)); }
 .market-y-axis { border-inline-start: 1px solid color-mix(in srgb,var(--color-border) 80%,transparent); }
 .market-y-tick,.market-x-axis span { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+
+/* Refine the daily instrument readouts without changing their scale or layout. */
+#daily-range .dr-card-heading b { font-weight: 600; letter-spacing: 0; }
+#daily-range .dr-card-heading small,#daily-range .dr-current small,#daily-range .dr-position small { letter-spacing: 0; line-height: 1.6; }
+#daily-range .dr-current b { font-weight: 600; letter-spacing: -.01em; font-variant-numeric: lining-nums tabular-nums; }
+#daily-range .dr-position b,#daily-range .dr-endpoint b,#daily-range .dr-metrics b { font-weight: 600; font-variant-numeric: lining-nums tabular-nums; }
+#daily-range .dr-position em { line-height: 1.6; }
+#daily-range .dr-price-axis,#daily-range .dr-time-axis { font-variant-numeric: lining-nums tabular-nums; }
+
+/* Reuse the four surface levels for nested charts and genuinely floating overlays. */
+#daily-range .dr-details { background: linear-gradient(180deg,color-mix(in srgb,var(--layer-nested) 58%,var(--layer-panel)),var(--layer-panel)); box-shadow: inset 0 1px 0 color-mix(in srgb,var(--color-text) 3%,transparent); }
+#daily-range .dr-chart-wrap { border-color: var(--layer-divider); background: linear-gradient(180deg,var(--layer-nested),var(--layer-page)); box-shadow: var(--layer-shadow-inset); }
+#daily-range .dr-range-track { background-color: var(--layer-nested); box-shadow: var(--layer-shadow-inset); }
+.market-chart-frame { background: color-mix(in srgb,var(--layer-nested) 42%,transparent); }
+.market-plot { border-color: var(--layer-divider); background: linear-gradient(180deg,color-mix(in srgb,var(--layer-panel) 84%,var(--layer-page)),var(--layer-page)); box-shadow: var(--layer-shadow-inset); }
+.chart-compare-menu { border-color: var(--layer-divider); background: var(--layer-floating); box-shadow: var(--layer-shadow-floating); }
+html[data-theme="light"] .chart-compare-menu { background: var(--layer-floating); box-shadow: var(--layer-shadow-floating); }
+.history-tooltip,.best-offer-tooltip,.market-key-label,.history-empty,.best-offer-empty { border-color: var(--layer-divider); background: var(--layer-floating); box-shadow: var(--layer-shadow-floating); }
+html[data-theme="light"] .history-tooltip,html[data-theme="light"] .best-offer-tooltip,html[data-theme="light"] .market-key-label,html[data-theme="light"] .history-empty,html[data-theme="light"] .best-offer-empty { background: var(--layer-floating); box-shadow: var(--layer-shadow-floating); }
 .market-axis-unit { color: var(--color-text-muted); }
 .history-tooltip,.best-offer-tooltip { border: 1px solid color-mix(in srgb,var(--color-copper) 24%,var(--color-border)); border-radius: 3px; background: var(--color-surface); padding: 7px 10px; color: var(--color-text); box-shadow: 0 6px 16px var(--color-shadow); backdrop-filter: none; }
 .history-stat,.best-offer-stats article { border-radius: 3px; background: linear-gradient(135deg,var(--color-raised),var(--color-surface)); }

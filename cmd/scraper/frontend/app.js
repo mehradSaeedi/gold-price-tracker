@@ -13,6 +13,8 @@
       "Talasea": "https://talasea.ir/",
       "Taline": "https://taline.ir/app",
       "MelliGold": "https://melligold.com/",
+      "Ecogold": "https://ecogold.ir/",
+      "Digikala": "https://www.digikala.com/wealth/",
       "Hamrahgold": "https://hamrahgold.com/",
       "TapsiGold": "https://tapsi.gold/",
       "Invi": "https://invi.ir/",
@@ -26,6 +28,31 @@
     };
     // Avoid repeating requests to providers whose favicon endpoint has already failed.
     const failedFaviconOrigins = new Set();
+    function createDecisionProviderIcon(site) {
+      const tradeURL = providerTradeLinks[site];
+      if (!tradeURL) return null;
+      const faviconURL = new URL("/favicon.ico", tradeURL);
+      const fallbackFaviconURL = new URL("https://www.google.com/s2/favicons/");
+      fallbackFaviconURL.searchParams.set("domain", new URL(tradeURL).hostname);
+      fallbackFaviconURL.searchParams.set("sz", "64");
+      let fallbackTried = failedFaviconOrigins.has(faviconURL.origin);
+      const favicon = document.createElement("img");
+      favicon.className = "decision-provider-icon";
+      favicon.src = fallbackTried ? fallbackFaviconURL.href : faviconURL.href;
+      favicon.alt = "";
+      favicon.setAttribute("aria-hidden", "true");
+      favicon.loading = "lazy";
+      favicon.addEventListener("error", () => {
+        if (!fallbackTried) {
+          failedFaviconOrigins.add(faviconURL.origin);
+          fallbackTried = true;
+          favicon.src = fallbackFaviconURL.href;
+          return;
+        }
+        favicon.remove();
+      });
+      return favicon;
+    }
     // PROVIDER MINI-CHARTS STATE: remove these declarations to roll the feature back.
     const providerTrendCache = new Map();
     const providerTrendQueue = [];
@@ -47,6 +74,8 @@
       Talasea: "طلاسی",
       Taline: "طلاین",
       MelliGold: "ملی‌گلد",
+      Ecogold: "اکوگلد",
+      Digikala: "دیجی‌کالا",
       Hamrahgold: "همراه‌گلد",
       TapsiGold: "تپسی‌گلد",
       Invi: "اینوی",
@@ -68,6 +97,8 @@
       "Talasea public API": "رابط عمومی طلاسی",
       "Taline website": "وب‌سایت طلاین",
       "MelliGold public API": "رابط عمومی ملی‌گلد",
+      "Ecogold public API": "رابط عمومی اکوگلد",
+      "Digikala public API": "رابط عمومی دیجی‌کالا",
       "MelliGold API": "رابط ملی‌گلد",
       "TapsiGold public API": "رابط عمومی تپسی‌گلد",
       "Invi WebSocket": "داده زنده از ارتباط اینوی",
@@ -123,6 +154,7 @@
     let chartProviderSites = [];
     // /\ Remember the latest direction per provider and side so the last move stays visible between refreshes.
     const quoteMovements = new Map();
+    const odometerDisplayValues = new Map();
     // /\ Start with the best effective buy estimate; each sortable column can choose its own natural direction.
     const sortState = { key: "buyPrice", direction: "asc" };
     let widget = null;
@@ -673,8 +705,84 @@
         : base * (1 - fee.rate) - fee.fixedToman;
     }
 
+    function renderOdometerValue(element, cacheKey, text, numericValue, animate) {
+      const previous = odometerDisplayValues.get(cacheKey);
+      odometerDisplayValues.set(cacheKey, { text, numericValue });
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (!animate || !previous || previous.text === text || !Number.isFinite(previous.numericValue) || reducedMotion) {
+        element.textContent = text;
+        return;
+      }
+
+      const numericEnd = (value) => {
+        const match = value.match(/^[\u06f0-\u06f9\u0660-\u0669\u066b\u066c,٬٫.]+/);
+        return match ? match[0].length : 0;
+      };
+      const oldNumber = Array.from(previous.text).slice(0, numericEnd(previous.text));
+      const newCharacters = Array.from(text);
+      const newNumberLength = numericEnd(text);
+      const newNumber = newCharacters.slice(0, newNumberLength);
+      const newUnit = newCharacters.slice(newNumberLength).join("");
+      const oldDigits = oldNumber.filter((character) => /[\u06f0-\u06f9\u0660-\u0669]/.test(character));
+      const newDigits = newNumber.filter((character) => /[\u06f0-\u06f9\u0660-\u0669]/.test(character));
+      const rollingDirection = numericValue > previous.numericValue ? "up" : "down";
+      let digitIndex = 0;
+      let rollingCount = 0;
+      const visual = document.createElement("span");
+      visual.className = "odometer-visual";
+      visual.setAttribute("aria-hidden", "true");
+
+      const numberVisual = document.createElement("span");
+      numberVisual.className = "odometer-number";
+      numberVisual.setAttribute("dir", "ltr");
+      for (const character of newNumber) {
+        if (!/[\u06f0-\u06f9\u0660-\u0669]/.test(character)) {
+          numberVisual.append(document.createTextNode(character));
+          continue;
+        }
+        const placeFromRight = newDigits.length - digitIndex - 1;
+        const oldDigit = oldDigits[oldDigits.length - placeFromRight - 1];
+        digitIndex += 1;
+        if (oldDigit === character) {
+          numberVisual.append(document.createTextNode(character));
+          continue;
+        }
+
+        const roller = document.createElement("span");
+        roller.className = `odometer-digit odometer-roll-${rollingDirection}`;
+        const current = document.createElement("span");
+        current.className = "odometer-current";
+        current.textContent = oldDigit ?? "۰";
+        const next = document.createElement("span");
+        next.className = "odometer-next";
+        next.textContent = character;
+        roller.append(current, next);
+        numberVisual.append(roller);
+        rollingCount += 1;
+      }
+      visual.append(numberVisual);
+      if (newUnit) {
+        const unit = document.createElement("span");
+        unit.className = "odometer-unit";
+        unit.setAttribute("dir", "rtl");
+        unit.textContent = newUnit;
+        visual.append(unit);
+      }
+
+      const accessibleText = document.createElement("span");
+      accessibleText.className = "sr-only";
+      accessibleText.textContent = text;
+      element.replaceChildren(visual, accessibleText);
+      if (rollingCount) {
+        void visual.offsetWidth;
+        requestAnimationFrame(() => {
+          for (const roller of visual.querySelectorAll(".odometer-digit")) roller.classList.add("is-rolling");
+        });
+      }
+    }
+
     // /\\ Rank only current providers whose fee information lets us make a fair total-cost comparison.
-    function renderDecisionSummary(prices, grams) {
+    function renderDecisionSummary(prices, grams, changedBuyQuoteSites = new Set()) {
       for (const side of ["buy", "sell"]) {
         const heading = document.getElementById(`best-${side}-heading`);
         const provider = document.getElementById(`best-${side}-provider`);
@@ -688,6 +796,7 @@
           heading.textContent = side === "buy" ? "کمترین هزینه خرید" : "بیشترین دریافتی فروش";
           provider.textContent = "در انتظار نرخ معتبر با کارمزد مشخص";
           amount.textContent = "—";
+          if (side === "buy") odometerDisplayValues.delete("summary:buy");
           detail.textContent = "نرخ‌های قدیمی یا کارمزدهای نامشخص رتبه‌بندی نمی‌شوند.";
           continue;
         }
@@ -695,10 +804,22 @@
         const winnerAmount = Math.round(effectiveTotal(winner, side, grams));
         const tied = candidates.filter((price) => Math.round(effectiveTotal(price, side, grams)) === winnerAmount);
         heading.textContent = tied.length > 1 ? "بهترین قیمت مشترک" : side === "buy" ? "کمترین هزینه خرید" : "بیشترین دریافتی فروش";
-        provider.textContent = tied.length > 1
-          ? tied.slice(0, 2).map((price) => displayProviderName(price.site)).join(" و ") + (tied.length > 2 ? ` و ${numberFormat.format(tied.length - 2)} پلتفرم دیگر` : "")
+        const providerNames = tied.slice(0, 2).map((price) => displayProviderName(price.site));
+        const name = tied.length > 1
+          ? providerNames.join(" و ") + (tied.length > 2 ? ` و ${numberFormat.format(tied.length - 2)} پلتفرم دیگر` : "")
           : displayProviderName(winner.site);
-        amount.textContent = formatToman(winnerAmount);
+        provider.replaceChildren();
+        for (const tiedProvider of tied.slice(0, 2)) {
+          const icon = createDecisionProviderIcon(tiedProvider.site);
+          if (icon) provider.append(icon);
+        }
+        const providerName = document.createElement("span");
+        providerName.className = "decision-provider-name";
+        providerName.textContent = name;
+        provider.append(providerName);
+        const formattedAmount = formatToman(winnerAmount);
+        if (side === "buy") renderOdometerValue(amount, "summary:buy", formattedAmount, winnerAmount, changedBuyQuoteSites.has(winner.site));
+        else amount.textContent = formattedAmount;
         detail.textContent = `برای ${decimalNumberFormat.format(grams)} گرم، ${side === "buy" ? "با احتساب" : "پس از کسر"} کارمزد`;
       }
 
@@ -1031,7 +1152,7 @@
     }
 
     // /\ Build one row with quoted prices, separate fee estimates, fee-adjusted prices, and provider actions.
-    function renderComparisonTable(prices, grams) {
+    function renderComparisonTable(prices, grams, changedQuoteKeys = new Set()) {
       const usable = prices.filter((price) => price.available && !price.stale && price.buy > 0 && price.sell > 0);
       const bestBuy = Math.min(...usable.filter((price) => feeKnown(price, "buy")).map((price) => effectiveTotal(price, "buy", grams)));
       const bestSell = Math.max(...usable.filter((price) => feeKnown(price, "sell")).map((price) => effectiveTotal(price, "sell", grams)));
@@ -1055,19 +1176,27 @@
         const tradeURL = providerTradeLinks[price.site];
         if (tradeURL) {
           const faviconURL = new URL("/favicon.ico", tradeURL);
-          if (!failedFaviconOrigins.has(faviconURL.origin)) {
-            const favicon = document.createElement("img");
-            favicon.className = "provider-logo";
-            favicon.src = faviconURL.href;
-            favicon.alt = "";
-            favicon.setAttribute("aria-hidden", "true");
-            favicon.loading = "lazy";
-            favicon.addEventListener("error", () => {
+          const fallbackFaviconURL = new URL("https://www.google.com/s2/favicons/");
+          fallbackFaviconURL.searchParams.set("domain", new URL(tradeURL).hostname);
+          fallbackFaviconURL.searchParams.set("sz", "64");
+          const useFallbackImmediately = failedFaviconOrigins.has(faviconURL.origin);
+          let fallbackTried = useFallbackImmediately;
+          const favicon = document.createElement("img");
+          favicon.className = "provider-logo";
+          favicon.src = useFallbackImmediately ? fallbackFaviconURL.href : faviconURL.href;
+          favicon.alt = "";
+          favicon.setAttribute("aria-hidden", "true");
+          favicon.loading = "lazy";
+          favicon.addEventListener("error", () => {
+            if (!fallbackTried) {
               failedFaviconOrigins.add(faviconURL.origin);
-              favicon.remove();
-            }, { once: true });
-            provider.append(favicon);
-          }
+              fallbackTried = true;
+              favicon.src = fallbackFaviconURL.href;
+              return;
+            }
+            favicon.remove();
+          });
+          provider.append(favicon);
         }
         const providerName = document.createElement(tradeURL ? "a" : "span");
         providerName.className = tradeURL ? "provider-name provider-link" : "provider-name";
@@ -1122,7 +1251,13 @@
           const priceCell = document.createElement("td");
           const quote = document.createElement("span");
           quote.className = "quote-line number";
-          quote.textContent = usableQuote ? formatToman(price[side]) : "—";
+          const quoteCacheKey = `table:${price.site}:${side}:quote`;
+          const quoteKey = `${price.site}:${side}`;
+          if (usableQuote) renderOdometerValue(quote, quoteCacheKey, formatToman(price[side]), price[side], !price.stale && changedQuoteKeys.has(quoteKey));
+          else {
+            quote.textContent = "—";
+            odometerDisplayValues.delete(quoteCacheKey);
+          }
           const movement = quoteMovements.get(`${price.site}:${side}`);
           const movementAge = movement?.changedAt ? Date.now() - movement.changedAt : movementDisplayMs;
           const movementVisible = movement?.direction && movementAge < movementDisplayMs;
@@ -1144,15 +1279,17 @@
           const effectiveValue = usableQuote && feeKnown(price, side) ? effectiveTotal(price, side, grams) : null;
           const effectiveText = document.createElement("span");
           const feeSide = side === "buy" ? "buy" : "sell";
+          const effectiveCacheKey = `table:${price.site}:${side}:effective`;
           if (effectiveValue != null) {
             effectiveText.className = "effective-line effective-price number";
-            effectiveText.textContent = formatToman(effectiveValue);
+            renderOdometerValue(effectiveText, effectiveCacheKey, formatToman(effectiveValue), effectiveValue, !price.stale && changedQuoteKeys.has(quoteKey));
             if (!price.stale && (side === "buy" ? effectiveValue === bestBuy : effectiveValue === bestSell)) {
               priceCell.classList.add("best-effective");
             }
           } else {
             effectiveText.className = "effective-line";
             effectiveText.textContent = usableQuote ? "مبلغ نهایی: نامشخص" : "در انتظار نرخ";
+            odometerDisplayValues.delete(effectiveCacheKey);
           }
           priceCell.append(effectiveText);
           row.append(priceCell);
@@ -1229,13 +1366,45 @@
       scheduleProviderTrends(prices);
     }
 
+    let lastFreshObservationSignature = "";
+    let heartbeatExpiryTimer = 0;
+    const marketFreshnessThresholdMs = 90 * 1000; // Matches the existing server staleAfter threshold.
     async function refreshPrices() {
       const status = document.getElementById("status");
+      const statusMessage = document.getElementById("status-message");
+      const statusCheck = document.getElementById("status-check");
+      const statusTime = document.getElementById("status-time");
       try {
         const response = await fetch("/api/prices");
         if (!response.ok) throw new Error("پاسخ سرور ناموفق بود.");
         const prices = await response.json();
+        const checkedAt = new Date();
+        const freshPrices = prices.filter((price) => price.available && !price.stale && (price.buy > 0 || price.sell > 0));
+        status.dataset.feedState = freshPrices.length ? "healthy" : "stale";
+        window.clearTimeout(heartbeatExpiryTimer);
+        if (freshPrices.length) {
+          const freshestAgeSeconds = Math.min(...freshPrices.map((price) => Math.max(0, Number(price.ageSeconds) || 0)));
+          const untilStaleMs = Math.max(1, marketFreshnessThresholdMs - freshestAgeSeconds * 1000 + 1);
+          heartbeatExpiryTimer = window.setTimeout(() => {
+            status.dataset.feedState = "stale";
+            status.classList.remove("heartbeat-update");
+          }, untilStaleMs);
+        }
+        const observationSignature = freshPrices
+          .map((price) => `${price.site}:${price.fetchedAt}:${price.buy}:${price.sell}`)
+          .sort()
+          .join("|");
+        if (observationSignature && observationSignature !== lastFreshObservationSignature) {
+          lastFreshObservationSignature = observationSignature;
+          status.classList.remove("heartbeat-update");
+          void status.offsetWidth;
+          status.classList.add("heartbeat-update");
+        } else if (!freshPrices.length) {
+          status.classList.remove("heartbeat-update");
+        }
         // /\ Compare each fresh quote with its previous reading and remember its latest direction.
+        const changedBuyQuoteSites = new Set();
+        const changedQuoteKeys = new Set();
         for (const price of prices) {
           for (const side of ["buy", "sell"]) {
             if (!price.available || price[side] <= 0) continue;
@@ -1244,6 +1413,8 @@
             if (!previous) {
               quoteMovements.set(key, { value: price[side], direction: "", changedAt: 0 });
             } else if (price[side] !== previous.value) {
+              changedQuoteKeys.add(key);
+              if (side === "buy") changedBuyQuoteSites.add(price.site);
               quoteMovements.set(key, {
                 value: price[side],
                 direction: price[side] > previous.value ? "up" : "down",
@@ -1256,15 +1427,74 @@
         updateChartSites(prices);
         const grams = Math.min(10000, Math.max(0.001, Number(document.getElementById("grams").value) || 1));
         window.dispatchEvent(new CustomEvent("gold-prices-updated", { detail: { prices, grams } }));
-        renderDecisionSummary(prices, grams);
-        renderComparisonTable(prices, grams);
-        const updateTime = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
-        status.textContent = `آخرین بررسی نرخ‌ها: ${updateTime}`;
+        renderDecisionSummary(prices, grams, changedBuyQuoteSites);
+        renderComparisonTable(prices, grams, changedQuoteKeys);
+        statusMessage.hidden = true;
+        statusCheck.hidden = false;
+        statusTime.dateTime = checkedAt.toISOString();
+        statusTime.textContent = new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(checkedAt);
       } catch (error) {
-        status.textContent = "دریافت قیمت‌ها ناموفق بود؛ اتصال سرور را بررسی کنید.";
+        window.clearTimeout(heartbeatExpiryTimer);
+        status.dataset.feedState = "error";
+        status.classList.remove("heartbeat-update");
+        statusCheck.hidden = true;
+        statusMessage.hidden = false;
+        statusMessage.textContent = "دریافت قیمت‌ها ناموفق بود؛ اتصال سرور را بررسی کنید.";
       }
     }
 
+    const decisionSummary = document.querySelector(".decision-summary");
+    const summaryLights = [...(decisionSummary?.querySelectorAll(".summary-cursor-light") || [])];
+    const reduceSummaryLightMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (decisionSummary && summaryLights.length) {
+      let pointerX = 0;
+      let pointerY = 0;
+      let lightX = 0;
+      let lightY = 0;
+      let lightFrame = 0;
+      let hasPointerPosition = false;
+      const updateSummaryLightPositions = () => {
+        for (const light of summaryLights) {
+          const cardBounds = light.parentElement.getBoundingClientRect();
+          const x = Math.max(-120, Math.min(220, ((lightX - cardBounds.left) / cardBounds.width) * 100));
+          const y = Math.max(-120, Math.min(220, ((lightY - cardBounds.top) / cardBounds.height) * 100));
+          light.style.setProperty("--summary-light-x", `${x}%`);
+          light.style.setProperty("--summary-light-y", `${y}%`);
+        }
+      };
+      const moveSummaryLight = () => {
+        lightX += (pointerX - lightX) * 0.2;
+        lightY += (pointerY - lightY) * 0.2;
+        if (Math.abs(pointerX - lightX) < 0.1 && Math.abs(pointerY - lightY) < 0.1) {
+          lightX = pointerX;
+          lightY = pointerY;
+          lightFrame = 0;
+        } else {
+          lightFrame = requestAnimationFrame(moveSummaryLight);
+        }
+        updateSummaryLightPositions();
+      };
+      decisionSummary.addEventListener("pointermove", (event) => {
+        if (event.pointerType === "touch") return;
+        pointerX = event.clientX;
+        pointerY = event.clientY;
+        if (!hasPointerPosition) {
+          lightX = pointerX;
+          lightY = pointerY;
+          hasPointerPosition = true;
+        }
+        summaryLights.forEach((light) => light.classList.add("is-active"));
+        if (reduceSummaryLightMotion) {
+          lightX = pointerX;
+          lightY = pointerY;
+          updateSummaryLightPositions();
+        } else if (!lightFrame) lightFrame = requestAnimationFrame(moveSummaryLight);
+      });
+      decisionSummary.addEventListener("pointerleave", () => {
+        summaryLights.forEach((light) => light.classList.remove("is-active"));
+        hasPointerPosition = false;
+      });
+    }
     refreshPrices();
     setInterval(refreshPrices, 5000);
     document.getElementById("grams").addEventListener("input", refreshPrices);

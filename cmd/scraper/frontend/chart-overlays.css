@@ -146,3 +146,8 @@
   margin: 0;
   accent-color: var(--color-violet);
 }
+
+/* Match the shared Persian typography and numeric alignment in chart controls. */
+.chart-compare-trigger,.chart-compare-heading { font-weight: 550; letter-spacing: 0; }
+.chart-compare-count { font-variant-numeric: lining-nums tabular-nums; }
+.chart-compare-menu > p,.chart-site-option { line-height: 1.6; }

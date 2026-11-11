@@ -59,6 +59,12 @@ type BestOfferPoint struct {
 	SellToman int64     `json:"sellToman,omitempty"`
 }
 
+// QuoteStagnation summarizes exact flat periods and price changes in a lookback window.
+type QuoteStagnation struct {
+	FlatSeconds int64
+	JumpCount   int64
+}
+
 // /\ OpenPostgres checks the connection now, so a bad database URL fails at startup instead of on the first quote.
 func OpenPostgres(ctx context.Context, connectionString string) (*Postgres, error) {
 	pool, err := pgxpool.New(ctx, connectionString)
@@ -132,6 +138,71 @@ func (p *Postgres) UnchangedSince(
 	`, site, buy, sell).Scan(&since)
 
 	return since, err
+}
+
+func (p *Postgres) QuoteStagnation(
+	ctx context.Context,
+	site string,
+	windowStart time.Time,
+	now time.Time,
+	maxGap time.Duration,
+) (QuoteStagnation, error) {
+	if site == "" || !windowStart.Before(now) || maxGap <= 0 {
+		return QuoteStagnation{}, fmt.Errorf("site, time window, and maximum observation gap must be valid")
+	}
+
+	var result QuoteStagnation
+
+	err := p.pool.QueryRow(ctx, `
+		WITH sequenced AS (
+			SELECT
+			fetched_at,
+			buy_toman,
+			sell_toman,
+			LAG(fetched_at) OVER (ORDER BY fetched_at, id) AS previous_at,
+			LAG(buy_toman) OVER (ORDER BY fetched_at, id) AS previous_buy,
+			LAG(sell_toman) OVER (ORDER BY fetched_at, id) AS previous_sell
+		FROM price_observations
+		WHERE site = $1
+			AND fetched_at >= $2 - ($4 * INTERVAL '1 second')
+			AND fetched_at <= $3
+		),
+		intervals AS (
+			SELECT
+				CASE
+					WHEN previous_at IS NOT NULL
+					AND buy_toman = previous_buy
+					AND sell_toman = previous_sell
+					AND fetched_at - previous_at <= $4 * INTERVAL '1 second'
+				THEN GREATEST(
+					0,
+					EXTRACT(
+						EPOCH FROM
+						LEAST(fetched_at, $3::timestamptz)
+						- GREATEST(previous_at, $2::timestamptz)
+					)
+				)::bigint
+				ELSE 0
+			END AS flat_seconds,
+			CASE
+				WHEN previous_at IS NOT NULL
+					AND fetched_at >= $2
+					AND (buy_toman <> previous_buy OR sell_toman <> previous_sell)
+				THEN 1
+				ELSE 0
+			END AS jump_count
+		FROM sequenced
+		)
+		SELECT
+			COALESCE(SUM(flat_seconds), 0)::bigint,
+			COALESCE(SUM(jump_count), 0)::bigint
+		FROM intervals
+	`, site, windowStart, now, maxGap.Seconds()).Scan(
+		&result.FlatSeconds,
+		&result.JumpCount,
+	)
+
+	return result, err
 }
 
 // /\ Candles adjusts each raw quote for its known fees before grouping the values into OHLC buckets.
