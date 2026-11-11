@@ -1127,6 +1127,125 @@
       }
     }
 
+    // /\\ Keep the alternate landscape tied to the same fee-adjusted offer values used by the table's best-offer ranking.
+    function renderPriceLandscape(rows, grams, bestBuy, bestSell, changedQuoteKeys = new Set()) {
+      const landscape = document.getElementById("price-landscape");
+      const previousScores = new Map([...landscape.querySelectorAll(".landscape-track-fill[data-bar-key]")]
+        .map((fill) => [fill.dataset.barKey, fill.style.getPropertyValue("--landscape-score")]));
+      const candidates = { buy: [], sell: [] };
+      for (const price of rows) {
+        if (!price.available || price.stale || price.buy <= 0 || price.sell <= 0) continue;
+        for (const side of ["buy", "sell"]) {
+          if (feeKnown(price, side)) candidates[side].push(effectiveTotal(price, side, grams));
+        }
+      }
+      const bounds = Object.fromEntries(["buy", "sell"].map((side) => [side, {
+        min: candidates[side].length ? Math.min(...candidates[side]) : null,
+        max: candidates[side].length ? Math.max(...candidates[side]) : null,
+      }]));
+      const items = rows.map((price) => {
+        const item = document.createElement("article");
+        item.className = "landscape-provider";
+        if (!price.available) item.classList.add("is-pending");
+        else if (price.stale) item.classList.add("is-stale");
+
+        const heading = document.createElement("div");
+        heading.className = "landscape-provider-heading";
+        const name = document.createElement("span");
+        name.className = "landscape-provider-name";
+        name.textContent = displayProviderName(price.site);
+        heading.append(name);
+        const state = document.createElement("span");
+        state.className = "landscape-provider-state";
+        state.textContent = !price.available ? "در انتظار نرخ" : price.stale ? "نرخ قدیمی" : formatQuoteAge(price.ageSeconds);
+        heading.append(state);
+        item.append(heading);
+
+        const tracks = document.createElement("div");
+        tracks.className = "landscape-tracks";
+        for (const side of ["buy", "sell"]) {
+          const track = document.createElement("div");
+          track.className = `landscape-track landscape-${side}`;
+          if (!price.stale && changedQuoteKeys.has(`${price.site}:${side}`)) track.classList.add("has-price-update");
+          const label = document.createElement("span");
+          label.className = "landscape-track-label";
+          label.textContent = side === "buy" ? "خرید" : "فروش";
+          track.append(label);
+          const quote = document.createElement("span");
+          quote.className = "landscape-track-quote number";
+          const validQuote = price.available && price.buy > 0 && price.sell > 0 && price[side] > 0;
+          quote.textContent = validQuote ? formatToman(price[side]) : "—";
+          track.append(quote);
+
+          const effective = validQuote && !price.stale && feeKnown(price, side) ? effectiveTotal(price, side, grams) : null;
+          const best = side === "buy" ? bestBuy : bestSell;
+          const knownBest = Number.isFinite(best);
+          const isBest = effective != null && knownBest && effective === best;
+          if (isBest) track.classList.add("is-best");
+          const diff = effective == null || !knownBest ? null : (side === "buy" ? effective - best : best - effective);
+          const comparison = document.createElement("span");
+          comparison.className = `landscape-track-difference number${isBest ? " is-best" : ""}`;
+          comparison.textContent = diff == null ? "اختلاف نامشخص" : isBest ? "بهترین پیشنهاد" : `${formatToman(diff)} تا بهترین`;
+          track.append(comparison);
+
+          const bar = document.createElement("span");
+          bar.className = "landscape-track-bar";
+          const fill = document.createElement("span");
+          fill.className = "landscape-track-fill";
+          const barKey = `${price.site}:${side}`;
+          fill.dataset.barKey = barKey;
+          if (effective != null && knownBest) {
+            const { min, max } = bounds[side];
+            const score = max === min ? 1 : side === "buy" ? (max - effective) / (max - min) : (effective - min) / (max - min);
+            const scorePercent = Math.max(0, Math.min(1, score)) * 100;
+            fill.style.setProperty("--landscape-score", `${scorePercent}%`);
+            const previousScore = previousScores.get(barKey);
+            if (!landscape.hidden && changedQuoteKeys.size && previousScore && Number.parseFloat(previousScore) !== scorePercent) {
+              fill.style.setProperty("--landscape-score-from", previousScore);
+              fill.classList.add("is-transitioning");
+            }
+            if (isBest) fill.classList.add("is-best");
+          } else {
+            fill.classList.add("is-unavailable");
+          }
+          bar.append(fill);
+          track.append(bar);
+          const effectiveLabel = document.createElement("span");
+          effectiveLabel.className = "landscape-effective number";
+          effectiveLabel.textContent = effective == null ? "مبلغ مؤثر نامشخص" : `مؤثر: ${formatToman(effective)}`;
+          track.append(effectiveLabel);
+          tracks.append(track);
+        }
+        item.append(tracks);
+        return item;
+      });
+      const primaryItems = items.filter((item) => !item.classList.contains("is-pending") && !item.classList.contains("is-stale"));
+      const deferredItems = items.filter((item) => item.classList.contains("is-pending") || item.classList.contains("is-stale"));
+      const legend = document.createElement("p");
+      legend.className = "landscape-legend";
+      legend.textContent = "نوار بلندتر = قیمت رقابتی‌تر";
+      const children = [legend, ...primaryItems];
+      if (deferredItems.length) {
+        const wasOpen = document.getElementById("price-landscape-exceptions")?.open ?? false;
+        const staleCount = deferredItems.filter((item) => item.classList.contains("is-stale")).length;
+        const pendingCount = deferredItems.filter((item) => item.classList.contains("is-pending")).length;
+        const disclosure = document.createElement("details");
+        disclosure.id = "price-landscape-exceptions";
+        disclosure.className = "provider-exceptions-disclosure landscape-exceptions-disclosure";
+        disclosure.open = wasOpen;
+        const summary = document.createElement("summary");
+        summary.textContent = `قدیمی: ${numberFormat.format(staleCount)} · بدون نرخ: ${numberFormat.format(pendingCount)}`;
+        disclosure.append(summary, ...deferredItems);
+        children.push(disclosure);
+      }
+      landscape.replaceChildren(...children);
+      const transitioningBars = [...landscape.querySelectorAll(".landscape-track-fill.is-transitioning")];
+      if (transitioningBars.length) {
+        transitioningBars.forEach((fill) => { void fill.offsetWidth; });
+        requestAnimationFrame(() => transitioningBars.forEach((fill) => fill.classList.remove("is-transitioning")));
+      }
+    }
+
     // /\ Update visible chevrons and screen-reader sort state along with the active numeric sort.
     function updateSortIndicators() {
       for (const button of document.querySelectorAll("button[data-sort-key]")) {
@@ -1162,6 +1281,7 @@
         const comparison = compareNumeric(sortValue(a, sortState.key, grams), sortValue(b, sortState.key, grams), sortState.direction);
         return comparison || displayProviderName(a.site).localeCompare(displayProviderName(b.site), "fa");
       });
+      renderPriceLandscape(rows, grams, bestBuy, bestSell, changedQuoteKeys);
       const body = document.getElementById("comparison-rows");
       const rowNodes = rows.map((price) => {
         const row = document.createElement("tr");
@@ -1507,6 +1627,21 @@
       table.classList.toggle("fees-hidden", !showFees);
       button.setAttribute("aria-expanded", String(showFees));
       button.textContent = showFees ? "پنهان‌کردن کارمزدها" : "نمایش کارمزدها";
+    });
+    document.querySelectorAll("[data-comparison-view]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const isLandscape = button.dataset.comparisonView === "landscape";
+        document.querySelectorAll("[data-comparison-view]").forEach((item) => {
+          item.setAttribute("aria-pressed", String(item === button));
+        });
+        document.getElementById("comparison-table").hidden = isLandscape;
+        document.getElementById("price-landscape").hidden = !isLandscape;
+        document.querySelector(".table-scroll-hint").hidden = isLandscape;
+        document.getElementById("fee-columns-toggle").hidden = isLandscape;
+        const scroll = document.querySelector(".table-scroll");
+        scroll.setAttribute("aria-label", isLandscape ? "نمای بصری مقایسه قیمت ارائه‌دهندگان" : "جدول قابل پیمایش افقی");
+        scroll.tabIndex = isLandscape ? -1 : 0;
+      });
     });
     // /\ Let keyboard and mouse users sort by the real numeric values behind each displayed price or fee.
     document.querySelectorAll("button[data-sort-key]").forEach((button) => {

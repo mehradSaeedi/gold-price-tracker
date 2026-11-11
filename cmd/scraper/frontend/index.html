@@ -117,9 +117,13 @@
       <div class="flex flex-wrap items-end justify-between gap-2 border-b border-line px-4 py-4 sm:px-5">
         <div>
           <svg class="section-icon providers-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 20.5h17M5 20V8.5h5V20m4 0V4h5v16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.7 11h1.6m5.4-3h1.6m-1.6 3h1.6m-1.6 3h1.6" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><circle cx="7.5" cy="5" r="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
-          <h2 id="comparison-title" class="text-lg font-bold">جدول مقایسه قیمت</h2>
+          <h2 id="comparison-title" class="text-lg font-bold">مقایسه قیمت پلتفرم‌ها</h2>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <div class="comparison-view-toggle" role="group" aria-label="نمایش مقایسه قیمت">
+            <button type="button" data-comparison-view="table" aria-pressed="true">جدول</button>
+            <button type="button" data-comparison-view="landscape" aria-pressed="false">نمای قیمت</button>
+          </div>
           <button id="fee-columns-toggle" class="row-action fee-toggle" type="button" aria-controls="comparison-table" aria-expanded="false">نمایش کارمزدها</button>
         </div>
       </div>
@@ -174,6 +178,7 @@
             <tr><td class="py-8 text-center text-sm text-muted" colspan="7">در حال دریافت قیمت‌ها…</td></tr>
           </tbody>
         </table>
+        <div id="price-landscape" class="price-landscape" role="region" aria-label="نمای مقایسه بصری قیمت ارائه‌دهندگان" hidden></div>
         <!-- /\\ On narrow screens, remind the reader that more columns are available sideways. -->
         <p class="table-scroll-hint" aria-hidden="true">برای دیدن ستون‌های بیشتر، جدول را به چپ و راست بکشید.</p>
       </div>
