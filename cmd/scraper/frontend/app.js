@@ -120,7 +120,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
         const provider = document.getElementById(`best-${side}-provider`);
         const amount = document.getElementById(`best-${side}-amount`);
         const detail = document.getElementById(`best-${side}-detail`);
-        const candidates = prices.filter((price) => price.available && !price.stale && price[side] > 0 && feeKnown(price, side));
+        const candidates = prices.filter((price) => marketEligible(price) && price[side] > 0 && feeKnown(price, side));
         candidates.sort((a, b) => side === "buy"
           ? effectiveTotal(a, side, grams) - effectiveTotal(b, side, grams)
           : effectiveTotal(b, side, grams) - effectiveTotal(a, side, grams));
@@ -156,8 +156,8 @@ const sortState = { key: "buyPrice", direction: "asc" };
       }
 
       // /\\ Compare the cheapest known-fee purchase with the highest known-fee sale as a current estimate.
-      const buyCandidates = prices.filter((price) => price.available && !price.stale && price.buy > 0 && feeKnown(price, "buy"));
-      const sellCandidates = prices.filter((price) => price.available && !price.stale && price.sell > 0 && feeKnown(price, "sell"));
+      const buyCandidates = prices.filter((price) => marketEligible(price) && price.buy > 0 && feeKnown(price, "buy"));
+      const sellCandidates = prices.filter((price) => marketEligible(price) && price.sell > 0 && feeKnown(price, "sell"));
       buyCandidates.sort((a, b) => effectiveTotal(a, "buy", grams) - effectiveTotal(b, "buy", grams));
       sellCandidates.sort((a, b) => effectiveTotal(b, "sell", grams) - effectiveTotal(a, "sell", grams));
       const heading = document.getElementById("opportunity-heading");
@@ -227,6 +227,20 @@ const sortState = { key: "buyPrice", direction: "asc" };
       return `${numberFormat.format(Math.floor(hours / 24))} روز پیش`;
     }
 
+    // /\\ Show accumulated flat time as a duration, not as a time since an event.
+    function formatDuration(seconds) {
+      const value = Math.max(0, Math.floor(Number(seconds) || 0));
+      const minutes = Math.floor(value / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      if (days > 0) return `${numberFormat.format(days)} روز`;
+      if (hours > 0) return `${numberFormat.format(hours)} ساعت`;
+      if (minutes > 0) return `${numberFormat.format(minutes)} دقیقه`;
+      return `${numberFormat.format(value)} ثانیه`;
+    }
+
+
+    const marketEligible = (price) => price.available && !price.stale && !price.unchanged;
 
     // /\ Show each known fee's real charge for the selected order and explain its source components on hover/focus.
     function feeBadge(price, side, grams) {
@@ -281,11 +295,11 @@ const sortState = { key: "buyPrice", direction: "asc" };
     // /\ Pick the numeric value for each sortable column, including the current order size's fee impact.
     function sortValue(price, key, grams) {
       switch (key) {
-        case "buyPrice": return price.available && !price.stale && feeKnown(price, "buy") ? effectiveTotal(price, "buy", grams) : null;
+        case "buyPrice": return marketEligible(price) && feeKnown(price, "buy") ? effectiveTotal(price, "buy", grams) : null;
         case "buyFee": return actualFeeAmount(price, "buy", grams);
-        case "sellPrice": return price.available && !price.stale && feeKnown(price, "sell") ? effectiveTotal(price, "sell", grams) : null;
+        case "sellPrice": return marketEligible(price) && feeKnown(price, "sell") ? effectiveTotal(price, "sell", grams) : null;
         case "sellFee": return actualFeeAmount(price, "sell", grams);
-        case "spread": return price.available && !price.stale ? effectiveSpread(price, grams) : null;
+        case "spread": return marketEligible(price) ? effectiveSpread(price, grams) : null;
         default: return null;
       }
     }
@@ -375,7 +389,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
         .map((fill) => [fill.dataset.barKey, fill.style.getPropertyValue("--landscape-score")]));
       const candidates = { buy: [], sell: [] };
       for (const price of rows) {
-        if (!price.available || price.stale || price.buy <= 0 || price.sell <= 0) continue;
+        if (!marketEligible(price) || price.buy <= 0 || price.sell <= 0) continue;
         for (const side of ["buy", "sell"]) {
           if (feeKnown(price, side)) candidates[side].push(effectiveTotal(price, side, grams));
         }
@@ -425,7 +439,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
           quote.textContent = validQuote ? formatToman(price[side]) : "—";
           track.append(quote);
 
-          const effective = validQuote && !price.stale && feeKnown(price, side) ? effectiveTotal(price, side, grams) : null;
+          const effective = validQuote && marketEligible(price) && feeKnown(price, side) ? effectiveTotal(price, side, grams) : null;
           const best = side === "buy" ? bestBuy : bestSell;
           const knownBest = Number.isFinite(best);
           const isBest = effective != null && knownBest && effective === best;
@@ -526,11 +540,11 @@ const sortState = { key: "buyPrice", direction: "asc" };
 
     // /\ Build one row with quoted prices, separate fee estimates, fee-adjusted prices, and provider actions.
     function renderComparisonTable(prices, grams, changedQuoteKeys = new Set()) {
-      const usable = prices.filter((price) => price.available && !price.stale && price.buy > 0 && price.sell > 0);
+      const usable = prices.filter((price) => marketEligible(price) && price.buy > 0 && price.sell > 0);
       const bestBuy = Math.min(...usable.filter((price) => feeKnown(price, "buy")).map((price) => effectiveTotal(price, "buy", grams)));
       const bestSell = Math.max(...usable.filter((price) => feeKnown(price, "sell")).map((price) => effectiveTotal(price, "sell", grams)));
       const rows = [...prices].sort((a, b) => {
-        const statusOrder = Number(!a.available || a.stale) - Number(!b.available || b.stale);
+        const statusOrder = Number(!marketEligible(a)) - Number(!marketEligible(b));
         if (statusOrder) return statusOrder;
         const comparison = compareNumeric(sortValue(a, sortState.key, grams), sortValue(b, sortState.key, grams), sortState.direction);
         return comparison || displayProviderName(a.site).localeCompare(displayProviderName(b.site), "fa");
@@ -591,6 +605,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
         chartButton.title = `نمایش نمودار ${displayProviderName(price.site)}`;
         chartButton.setAttribute("aria-label", `نمایش نمودار ${displayProviderName(price.site)}`);
         chartButton.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 15.5 7.2 11l3 2.4 6.8-8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.8 5.4H17v4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        chartButton.addEventListener("click", () => openProviderChart(price.site));
         provider.append(chartButton);
         providerCell.append(provider);
         const metadata = document.createElement("div");
@@ -610,6 +625,15 @@ const sortState = { key: "buyPrice", direction: "asc" };
           status.className = "quote-pending";
           status.textContent = "در انتظار نرخ";
           metadata.append(status);
+        }
+        if (price.available && price.unchanged) {
+          const stagnation = document.createElement("span");
+          stagnation.className = "quote-age quote-age-unchanged";
+          const duration = formatDuration(price.flatSeconds);
+          const changes = numberFormat.format(Math.max(0, Number(price.jumpCount) || 0));
+          stagnation.textContent = `تقریباً ثابت · ${duration} · ${changes} تغییر`;
+          stagnation.title = "این نرخ به‌دلیل ثبات طولانی در محاسبات بازار لحاظ نمی‌شود";
+          metadata.append(stagnation);
         }
         providerCell.append(metadata);
         row.append(providerCell);
@@ -658,7 +682,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
           if (effectiveValue != null) {
             effectiveText.className = "effective-line effective-price number";
             renderOdometerValue(effectiveText, effectiveCacheKey, formatToman(effectiveValue), effectiveValue, !price.stale && changedQuoteKeys.has(quoteKey));
-            if (!price.stale && (side === "buy" ? effectiveValue === bestBuy : effectiveValue === bestSell)) {
+            if (marketEligible(price) && (side === "buy" ? effectiveValue === bestBuy : effectiveValue === bestSell)) {
               priceCell.classList.add("best-effective");
             }
           } else {
@@ -742,7 +766,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
     }
 
     const chartController = createChartController({ numberFormat, decimalNumberFormat, displayProviderName });
-    const { updateChartSites, syncChartSymbol, marketMedianSite } = chartController;
+    const { updateChartSites, syncChartSymbol, initializeChart, isChartInitialized, marketMedianSite } = chartController;
     const providerTrends = createProviderTrends({ numberFormat, decimalNumberFormat, displayProviderName, formatToman });
 
     let lastFreshObservationSignature = "";
@@ -987,15 +1011,29 @@ const sortState = { key: "buyPrice", direction: "asc" };
     document.querySelectorAll("button[data-sort-key]").forEach((button) => {
       button.addEventListener("click", () => chooseSort(button.dataset.sortKey));
     });
-    // /\ A provider's chart action selects it in the existing chart and takes the user to that chart.
-    document.getElementById("comparison-rows").addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-chart-provider]");
-      if (!button) return;
-      document.getElementById("chart-site").value = button.dataset.chartProvider;
-      activateMarketTab("chart");
+    // /\ Reveal the TradingView tab before scrolling, then account for the sticky analytics toolbar.
+    function openProviderChart(site) {
+      const select = document.getElementById("chart-site");
+      select.value = site;
       syncChartSymbol();
-      document.getElementById("chart-panel").scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+      showTradingViewChart();
+    }
+    async function showTradingViewChart() {
+      activateMarketTab("chart");
+      const chart = document.getElementById("candle-chart");
+      const panel = document.getElementById("chart-panel");
+      // Tab activation animates the panel with a transform. Scrolling during that animation
+      // uses a transient position, so wait for it to finish and for layout to settle first.
+      await Promise.allSettled(panel.getAnimations().map((animation) => animation.finished));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (panel.hidden || chart.getClientRects().length === 0) return;
+      chart.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+        inline: "nearest",
+      });
+    }
+    // /\ A provider's chart action selects it in the existing chart and takes the user to that chart.
     document.querySelectorAll("[data-provider-trend-side]").forEach((button) => {
       button.addEventListener("click", () => {
         const side = button.dataset.providerTrendSide;
@@ -1035,7 +1073,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
       const activeTab = marketTabs.find((tab) => tab.dataset.marketTab === view);
       if (!activeTab) return;
       const wasSelected = activeTab.getAttribute("aria-selected") === "true";
-      if (wasSelected && (view !== "chart" || chartInitialized)) return;
+      if (wasSelected && (view !== "chart" || isChartInitialized())) return;
       for (const tab of marketTabs) {
         const selected = tab === activeTab;
         tab.setAttribute("aria-selected", String(selected));
@@ -1073,9 +1111,5 @@ const sortState = { key: "buyPrice", direction: "asc" };
         document.getElementById("grams").value = String(grams);
       }
       syncChartSymbol();
-      activateMarketTab("chart");
-      document.getElementById("chart-panel").scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-        block: "start",
-      });
+      showTradingViewChart();
     });

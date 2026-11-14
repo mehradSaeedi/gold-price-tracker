@@ -546,7 +546,9 @@ func main() {
 		configuredSites := store.list()
 		sites := make([]string, 0, len(configuredSites))
 		for _, price := range configuredSites {
-			sites = append(sites, price.Site)
+			if !price.Unchanged {
+				sites = append(sites, price.Site)
+			}
 		}
 		points, err := database.BestOffers(ctx, interval, seconds, from, to, limit, grams, sites)
 		if err != nil {

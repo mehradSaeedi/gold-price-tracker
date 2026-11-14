@@ -38,7 +38,9 @@
         ? providerName(site)
         : !price?.available
         ? `${providerName(site)} · نرخ فعلی در دسترس نیست`
-        : price.stale
+        : price.unchanged
+          ? `${providerName(site)} · قیمت تقریباً ثابت`
+          : price.stale
           ? `${providerName(site)} · نرخ قدیمی · دریافت: ${formatQuoteAge(price.ageSeconds)}`
           : `${providerName(site)} · دریافت: ${formatQuoteAge(price.ageSeconds)}`;
     indicator.title = `زمان دریافت آخرین نرخ ${providerName(site)}`;
@@ -78,7 +80,10 @@
 
   function render(rows, selectedRange, side) {
     const [siteKey, valueKey] = side === "buy" ? ["buySite", "buyToman"] : ["sellSite", "sellToman"];
-    const points = rows.map((row) => ({ time: Date.parse(row.timestamp), site: row[siteKey], value: Number(row[valueKey]) })).filter((point) => Number.isFinite(point.time) && point.site && point.value > 0).sort((a, b) => a.time - b.time);
+    const points = rows.map((row) => ({ time: Date.parse(row.timestamp), site: row[siteKey], value: Number(row[valueKey]) }))
+      .filter((point) => Number.isFinite(point.time) && point.site && point.value > 0
+        && (!livePricesLoaded || !currentPrices.get(point.site)?.unchanged))
+      .sort((a, b) => a.time - b.time);
     if (!points.length) { showEmpty("برای این بازه هنوز پیشنهادهای تاریخی کافی ثبت نشده است."); return; }
     const siteOrder = [...new Set(points.map((point) => point.site))].sort();
     if (!siteOrder.includes(selectedProvider)) selectedProvider = null;
@@ -305,6 +310,7 @@
       currentPrices = new Map(prices.map((price) => [price.site, price]));
       livePricesLoaded = true;
       updateChartFreshness();
+      load();
     } catch (_) { /* Keep the last known freshness marker while the dashboard retries. */ }
   }
 

@@ -234,7 +234,7 @@
   }
   function makeMarketModel() {
     const quotes = latestPrices
-      .filter(price => price.available && !price.stale)
+      .filter(price => price.available && !price.stale && !price.unchanged)
       .map(price => effectiveBuyPerGram(price))
       .filter(value => Number.isFinite(value) && value > 0);
     const current = robustMedian(quotes);

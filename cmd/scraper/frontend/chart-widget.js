@@ -41,6 +41,7 @@ export function createChartController({ numberFormat, decimalNumberFormat, displ
     const marketMedianSite = "__market_median__";
     const subscriptions = new Map();
     let chartProviderSites = [];
+    let excludedStagnantSites = new Set();
     let widget = null;
     let chartInitialized = false;
     let widgetReady = false;
@@ -197,8 +198,9 @@ export function createChartController({ numberFormat, decimalNumberFormat, displ
       const boundedTo = Number.isFinite(to) ? to : Math.floor(Date.now() / 1000);
       const requestedFrom = Number.isFinite(from) ? from : boundedTo - limit * secondsPerBar;
       const boundedFrom = Math.max(requestedFrom, boundedTo - limit * secondsPerBar);
-      if (!chartProviderSites.length) return { bars: [], candles: [], interval };
-      const responses = await Promise.allSettled(chartProviderSites.map(async site => {
+      const eligibleSites = chartProviderSites.filter(site => !excludedStagnantSites.has(site));
+      if (!eligibleSites.length) return { bars: [], candles: [], interval };
+      const responses = await Promise.allSettled(eligibleSites.map(async site => {
         const params = new URLSearchParams({
           site, interval, grams: String(selection.grams), limit: String(limit),
           from: new Date(boundedFrom * 1000).toISOString(),
@@ -374,7 +376,7 @@ export function createChartController({ numberFormat, decimalNumberFormat, displ
       }
       const symbol = selectedSymbol();
       if (!symbol) return;
-      chartInitialized = true;
+      try {
       widget = new TradingView.widget({
         container: "candle-chart",
         library_path: "/charting_library/",
@@ -424,9 +426,17 @@ export function createChartController({ numberFormat, decimalNumberFormat, displ
           .finally(() => {
             widgetReady = true;
             displayedSymbol = symbol;
-            syncChartSymbol();
+            try { syncChartSymbol(); } catch (error) {
+              document.getElementById("chart-status").textContent = `تنظیم نمودار انجام نشد: ${error.message || error}`;
+            }
           });
       });
+      chartInitialized = true;
+      } catch (error) {
+        chartInitialized = false;
+        widget = null;
+        document.getElementById("chart-status").textContent = `راه‌اندازی نمودار انجام نشد: ${error.message || error}`;
+      }
     }
 
     // /\ Reload the series when the user changes site, buy or sell side, or order size.
@@ -507,6 +517,7 @@ export function createChartController({ numberFormat, decimalNumberFormat, displ
 
     // /\ Keep the site's dropdown in sync with providers known to the existing live-price API.
     function updateChartSites(prices) {
+      excludedStagnantSites = new Set(prices.filter(price => price.unchanged).map(price => price.site));
       const select = document.getElementById("chart-site");
       const host = document.getElementById("chart-sites");
       const sites = [...new Set(prices.map((price) => price.site).filter(Boolean))].sort();
@@ -569,5 +580,5 @@ export function createChartController({ numberFormat, decimalNumberFormat, displ
       }
     });
 
-    return { updateChartSites, syncChartSymbol, marketMedianSite };
+    return { updateChartSites, syncChartSymbol, initializeChart, isChartInitialized: () => chartInitialized, marketMedianSite };
 }
