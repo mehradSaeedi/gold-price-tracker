@@ -21,8 +21,10 @@ type Price struct {
 	SourceUnitType     string     `json:"sourceUnitType,omitempty"`
 	FetchedAt          time.Time  `json:"fetchedAt"`
 	Timestamp          *time.Time `json:"timestamp,omitempty"`
-	UnchangedSince     *time.Time `json:"unchangedSince,omitempty"`
-	UnchangedSeconds   int64      `json:"unchangedSeconds"`
+	// /\ These totals describe exact flat stretches and observed buy/sell jumps in the rolling window.
+	FlatSeconds        int64      `json:"flatSeconds"`
+	JumpCount          int64      `json:"jumpCount"`
+	// /\ Unchanged means the quote crossed the backend's flat-time and jump-count thresholds.
 	Unchanged          bool       `json:"unchanged"`
 	Available          bool       `json:"available"`
 	Stale              bool       `json:"stale"`

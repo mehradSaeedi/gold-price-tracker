@@ -59,7 +59,7 @@ type BestOfferPoint struct {
 	SellToman int64     `json:"sellToman,omitempty"`
 }
 
-// QuoteStagnation summarizes exact flat periods and price changes in a lookback window.
+// QuoteStagnation is the exact-flat time and number of price jumps found in a lookback window.
 type QuoteStagnation struct {
 	FlatSeconds int64
 	JumpCount   int64
@@ -108,38 +108,7 @@ func (p *Postgres) SaveObservation(ctx context.Context, price scraper.Price) err
 	return err
 }
 
-func (p *Postgres) UnchangedSince(
-	ctx context.Context,
-	site string,
-	buy int64,
-	sell int64,
-) (time.Time, error) {
-	var since time.Time
-
-	err := p.pool.QueryRow(ctx, `
-		SELECT fetched_at
-		FROM price_observations
-		WHERE site = $1 
-			AND id > COALESCE(
-				(
-					SELECT id
-					FROM price_observations
-					WHERE site = $1	
-						AND (buy_toman <> $2 OR sell_toman <> $3)
-					ORDER BY id DESC
-					LIMIT 1
-				),
-				0
-			)
-			AND buy_toman = $2
-			AND sell_toman = $3
-		ORDER BY id ASC
-		LIMIT 1
-	`, site, buy, sell).Scan(&since)
-
-	return since, err
-}
-
+// QuoteStagnation adds up exact-flat intervals and counts observed price jumps in the window.
 func (p *Postgres) QuoteStagnation(
 	ctx context.Context,
 	site string,
@@ -154,7 +123,24 @@ func (p *Postgres) QuoteStagnation(
 	var result QuoteStagnation
 
 	err := p.pool.QueryRow(ctx, `
-		WITH sequenced AS (
+		-- /	Keep one quote before the window so we can compare the first in-window quote too.
+		WITH prior AS (
+			SELECT id, fetched_at, buy_toman, sell_toman
+			FROM price_observations
+			WHERE site = $1
+				AND fetched_at < $2
+			ORDER BY fetched_at DESC, id DESC
+			LIMIT 1
+		),
+		window_rows AS (
+			SELECT id, fetched_at, buy_toman, sell_toman
+			FROM price_observations
+			WHERE site = $1
+				AND fetched_at >= $2
+				AND fetched_at <= $3
+		),
+		-- /\ Compare every quote to the one immediately before it, including the saved prior quote.
+		sequenced AS (
 			SELECT
 			fetched_at,
 			buy_toman,
@@ -162,12 +148,14 @@ func (p *Postgres) QuoteStagnation(
 			LAG(fetched_at) OVER (ORDER BY fetched_at, id) AS previous_at,
 			LAG(buy_toman) OVER (ORDER BY fetched_at, id) AS previous_buy,
 			LAG(sell_toman) OVER (ORDER BY fetched_at, id) AS previous_sell
-		FROM price_observations
-		WHERE site = $1
-			AND fetched_at >= $2 - ($4 * INTERVAL '1 second')
-			AND fetched_at <= $3
+			FROM (
+				SELECT * FROM prior
+				UNION ALL
+				SELECT * FROM window_rows
+			) observations
 		),
 		intervals AS (
+			-- /\ A matching pair counts as flat only when observations are close enough to trust the interval.
 			SELECT
 				CASE
 					WHEN previous_at IS NOT NULL
@@ -192,11 +180,32 @@ func (p *Postgres) QuoteStagnation(
 				ELSE 0
 			END AS jump_count
 		FROM sequenced
-		)
+
+		UNION ALL
+
+		-- /\ Count the still-open flat interval through now when the latest quote is recent.
 		SELECT
-			COALESCE(SUM(flat_seconds), 0)::bigint,
-			COALESCE(SUM(jump_count), 0)::bigint
-		FROM intervals
+			CASE
+				WHEN $3::timestamptz - latest.fetched_at <= $4 * INTERVAL '1 second'
+				THEN GREATEST(
+					0,
+					EXTRACT(EPOCH FROM $3::timestamptz - GREATEST(latest.fetched_at, $2::timestamptz))
+				)::bigint
+				ELSE 0
+			END AS flat_seconds,
+			0 AS jump_count
+		FROM (
+			SELECT fetched_at
+			FROM window_rows
+			ORDER BY fetched_at DESC, id DESC
+			LIMIT 1
+		) latest
+
+	)
+	SELECT
+		COALESCE(SUM(flat_seconds), 0)::bigint,
+		COALESCE(SUM(jump_count), 0)::bigint
+	FROM intervals
 	`, site, windowStart, now, maxGap.Seconds()).Scan(
 		&result.FlatSeconds,
 		&result.JumpCount,

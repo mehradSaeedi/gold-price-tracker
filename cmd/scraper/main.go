@@ -127,6 +127,7 @@ func newHealthStore(sites []string) *healthStore {
 
 const (
 	staleAfter     = 90 * time.Second
+	// /	We look for at least twelve flat hours while allowing up to two jumps.
 	unchangedAfter = 12 * time.Hour
 )
 
@@ -158,7 +159,7 @@ func (s *priceStore) set(price scraper.Price) (scraper.Price, error) {
 	return price, nil
 }
 
-func (s *priceStore) setUnchangedSince(site string, since time.Time) {
+func (s *priceStore) setStagnation(site string, stagnation storage.QuoteStagnation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -167,10 +168,12 @@ func (s *priceStore) setUnchangedSince(site string, since time.Time) {
 		return
 	}
 
-	now := time.Now()
-	price.UnchangedSince = &since
-	price.UnchangedSeconds = int64(now.Sub(since).Seconds())
-	price.Unchanged = now.Sub(since) >= unchangedAfter
+	// /\ Keep the rolling history summary with the quote so the API can return it.
+	price.FlatSeconds = stagnation.FlatSeconds
+	price.JumpCount = stagnation.JumpCount
+	// /\ A couple of exact price changes don't erase a long flat stretch; a third does.
+	price.Unchanged = stagnation.FlatSeconds >= int64(unchangedAfter.Seconds()) &&
+		stagnation.JumpCount <= 2
 	s.prices[site] = price
 }
 
@@ -193,16 +196,6 @@ func (s *priceStore) list() []scraper.Price {
 		price.Stale = !price.Available ||
 			price.FetchedAt.IsZero() ||
 			now.Sub(price.FetchedAt) > staleAfter
-
-		if price.UnchangedSince != nil {
-			unchangedFor := now.Sub(*price.UnchangedSince)
-			if unchangedFor < 0 {
-				unchangedFor = 0
-			}
-
-			price.UnchangedSeconds = int64(unchangedFor.Seconds())
-			price.Unchanged = unchangedFor >= unchangedAfter
-		}
 
 		prices = append(prices, price)
 	}
@@ -247,20 +240,25 @@ func recordPrice(price scraper.Price, store *priceStore, database *storage.Postg
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// /\ Save every quote, including repeats, so the history can measure flat periods reliably.
 	if err := database.SaveObservation(ctx, price); err != nil {
 		return fmt.Errorf("save quote to PostgreSQL: %w", err)
 	}
 
-	unchangedSince, err := database.UnchangedSince(ctx, price.Site, price.Buy, price.Sell)
+	// /\ Recompute the last day's exact-flat time and jumps from the full saved observation history.
+	now := time.Now()
+	stagnation, err := database.QuoteStagnation(
+		ctx,
+		price.Site,
+		now.Add(-24*time.Hour),
+		now,
+		staleAfter,
+	)
 	if err != nil {
-		return fmt.Errorf("find unchanged quote start: %w", err)
+		return fmt.Errorf("calculate quote stagnation: %w", err)
 	}
 
-	// The order is important: SaveObservation appends the new quote first;
-	// UnchangedSince then finds the beginning of that exact buy/sell run,
-	// including history from before a restart.
-	store.setUnchangedSince(price.Site, unchangedSince)
-
+	store.setStagnation(price.Site, stagnation)
 	return nil
 }
 
