@@ -295,10 +295,10 @@ const sortState = { key: "buyPrice", direction: "asc" };
     let hoveredLandscapeProvider = "";
     let focusedLandscapeProvider = "";
     function applyLandscapeSpotlight() {
-      const landscape = document.getElementById("price-landscape");
       const activeProvider = pinnedLandscapeProvider || focusedLandscapeProvider || hoveredLandscapeProvider;
-      landscape.classList.toggle("has-spotlight", Boolean(activeProvider));
-      for (const row of landscape.querySelectorAll(".landscape-provider")) {
+      document.getElementById("price-landscape").classList.toggle("has-spotlight", Boolean(activeProvider));
+      document.getElementById("provider-heatmap-grid").classList.toggle("has-spotlight", Boolean(activeProvider));
+      for (const row of document.querySelectorAll(".landscape-provider,.heatmap-tile")) {
         const active = row.dataset.provider === activeProvider;
         row.classList.toggle("is-spotlight", active);
         row.classList.toggle("is-pinned", Boolean(pinnedLandscapeProvider) && row.dataset.provider === pinnedLandscapeProvider);
@@ -307,6 +307,64 @@ const sortState = { key: "buyPrice", direction: "asc" };
     }
     function toggleLandscapePin(row) {
       pinnedLandscapeProvider = pinnedLandscapeProvider === row.dataset.provider ? "" : row.dataset.provider;
+      applyLandscapeSpotlight();
+    }
+    let heatmapMetric = "buy";
+    function renderProviderHeatmap(rows, grams) {
+      const grid = document.getElementById("provider-heatmap-grid");
+      const previousSurfaces = new Map([...grid.querySelectorAll(".heatmap-tile")].map((tile) => [tile.dataset.provider, getComputedStyle(tile).backgroundColor]));
+      const keys = { buy: "buyPrice", sell: "sellPrice", spread: "spread" };
+      const direction = heatmapMetric === "sell" ? "desc" : "asc";
+      const entries = rows.map((price) => ({ price, value: sortValue(price, keys[heatmapMetric], grams) }));
+      const ranked = entries.filter((entry) => Number.isFinite(entry.value)).sort((a, b) => compareNumeric(a.value, b.value, direction));
+      const best = ranked[0]?.value ?? null;
+      const worst = ranked.at(-1)?.value ?? null;
+      const range = best == null || worst == null ? 0 : Math.abs(worst - best);
+      const rankBySite = new Map();
+      ranked.forEach((entry, index) => { if (!rankBySite.has(entry.price.site)) rankBySite.set(entry.price.site, index + 1); });
+      const tiles = entries.filter(({ value }) => Number.isFinite(value)).map(({ price, value }) => {
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "heatmap-tile";
+        tile.dataset.provider = price.site;
+        const valid = Number.isFinite(value);
+        const isBest = valid && value === best;
+        const score = !valid || range === 0 ? (valid ? 1 : 0) : Math.max(0, Math.min(1, direction === "asc" ? (worst - value) / range : (value - worst) / range));
+        // Ease color separation through the middle of the score range without changing rank or value.
+        const colorScore = Math.pow(score, 0.82);
+        const stops = [0, 0.34, 0.72, 1];
+        const palettes = ["var(--heatmap-slate)", "var(--heatmap-graphite)", "var(--heatmap-copper)", "var(--heatmap-gold)"];
+        const segment = Math.min(2, stops.findIndex((stop, index) => index < stops.length - 1 && colorScore <= stops[index + 1]));
+        const start = segment < 0 ? 2 : segment;
+        const blend = (colorScore - stops[start]) / (stops[start + 1] - stops[start]);
+        tile.style.setProperty("--heatmap-from", palettes[start]);
+        tile.style.setProperty("--heatmap-to", palettes[start + 1]);
+        tile.style.setProperty("--heatmap-blend", `${Math.max(0, Math.min(1, blend)) * 100}%`);
+        tile.classList.toggle("is-best", isBest);
+        tile.classList.toggle("is-rich", valid && colorScore >= 0.72);
+        tile.classList.toggle("is-unavailable", !valid);
+        if (previousSurfaces.has(price.site) && valid) tile.style.backgroundColor = previousSurfaces.get(price.site);
+        const name = document.createElement("span");
+        name.className = "heatmap-provider-name";
+        name.textContent = displayProviderName(price.site);
+        const amount = document.createElement("strong");
+        amount.className = "heatmap-value number";
+        amount.textContent = valid ? formatToman(value) : "ناموجود";
+        const status = document.createElement("span");
+        status.className = "heatmap-rank";
+        status.textContent = !valid ? (price.stale ? "نرخ قدیمی" : "بدون نرخ معتبر") : isBest ? "بهترین پیشنهاد" : `رتبه ${numberFormat.format(rankBySite.get(price.site))}`;
+        const support = document.createElement("span");
+        support.className = "heatmap-support";
+        const difference = document.createElement("span");
+        difference.className = "heatmap-difference number";
+        difference.textContent = !valid ? "مقایسه در دسترس نیست" : isBest ? "بهترین مقدار" : `${formatToman(Math.abs(value - best))} تا بهترین`;
+        support.append(difference, status);
+        tile.append(amount, name, support);
+        tile.title = `${displayProviderName(price.site)} · ${heatmapMetric === "buy" ? "خرید مؤثر" : heatmapMetric === "sell" ? "فروش مؤثر" : "اختلاف مؤثر"}: ${valid ? formatToman(value) : "ناموجود"}`;
+        return tile;
+      });
+      grid.replaceChildren(...tiles);
+      if (previousSurfaces.size) requestAnimationFrame(() => grid.querySelectorAll(".heatmap-tile").forEach((tile) => { tile.style.backgroundColor = ""; }));
       applyLandscapeSpotlight();
     }
     function renderPriceLandscape(rows, grams, bestBuy, bestSell, changedQuoteKeys = new Set()) {
@@ -478,6 +536,7 @@ const sortState = { key: "buyPrice", direction: "asc" };
         return comparison || displayProviderName(a.site).localeCompare(displayProviderName(b.site), "fa");
       });
       renderPriceLandscape(rows, grams, bestBuy, bestSell, changedQuoteKeys);
+      renderProviderHeatmap(rows, grams);
       const body = document.getElementById("comparison-rows");
       const rowNodes = rows.map((price) => {
         const row = document.createElement("tr");
@@ -830,19 +889,26 @@ const sortState = { key: "buyPrice", direction: "asc" };
     });
     document.querySelectorAll("[data-comparison-view]").forEach((button) => {
       button.addEventListener("click", () => {
-        const isLandscape = button.dataset.comparisonView === "landscape";
+        const view = button.dataset.comparisonView;
         document.querySelectorAll("[data-comparison-view]").forEach((item) => {
           item.setAttribute("aria-pressed", String(item === button));
         });
-        document.getElementById("comparison-table").hidden = isLandscape;
-        document.getElementById("price-landscape").hidden = !isLandscape;
-        document.querySelector(".table-scroll-hint").hidden = isLandscape;
-        document.getElementById("fee-columns-toggle").hidden = isLandscape;
+        const isTable = view === "table";
+        document.getElementById("comparison-table").hidden = !isTable;
+        document.getElementById("price-landscape").hidden = view !== "landscape";
+        document.getElementById("provider-heatmap").hidden = view !== "heatmap";
+        document.querySelector(".table-scroll-hint").hidden = !isTable;
+        document.getElementById("fee-columns-toggle").hidden = !isTable;
         const scroll = document.querySelector(".table-scroll");
-        scroll.setAttribute("aria-label", isLandscape ? "نمای بصری مقایسه قیمت ارائه‌دهندگان" : "جدول قابل پیمایش افقی");
-        scroll.tabIndex = isLandscape ? -1 : 0;
+        scroll.setAttribute("aria-label", isTable ? "جدول قابل پیمایش افقی" : view === "landscape" ? "نمای بصری مقایسه قیمت ارائه‌دهندگان" : "نقشه حرارتی مقایسه ارائه‌دهندگان");
+        scroll.tabIndex = isTable ? 0 : -1;
       });
     });
+    document.querySelectorAll("[data-heatmap-metric]").forEach((button) => button.addEventListener("click", () => {
+      heatmapMetric = button.dataset.heatmapMetric;
+      document.querySelectorAll("[data-heatmap-metric]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+      refreshPrices();
+    }));
     const priceLandscape = document.getElementById("price-landscape");
     priceLandscape.addEventListener("pointerover", (event) => {
       if (event.pointerType === "touch") return;
@@ -879,6 +945,36 @@ const sortState = { key: "buyPrice", direction: "asc" };
       if (!row) return;
       event.preventDefault();
       row.click();
+    });
+    const providerHeatmap = document.getElementById("provider-heatmap-grid");
+    providerHeatmap.addEventListener("pointerover", (event) => {
+      if (event.pointerType === "touch") return;
+      const tile = event.target.closest(".heatmap-tile");
+      if (!tile || tile.contains(event.relatedTarget)) return;
+      hoveredLandscapeProvider = tile.dataset.provider;
+      applyLandscapeSpotlight();
+    });
+    providerHeatmap.addEventListener("pointerout", (event) => {
+      if (event.pointerType === "touch") return;
+      const tile = event.target.closest(".heatmap-tile");
+      if (!tile || tile.contains(event.relatedTarget)) return;
+      if (hoveredLandscapeProvider === tile.dataset.provider) hoveredLandscapeProvider = "";
+      applyLandscapeSpotlight();
+    });
+    providerHeatmap.addEventListener("focusin", (event) => {
+      const tile = event.target.closest(".heatmap-tile");
+      focusedLandscapeProvider = tile?.matches(":focus-visible") ? tile.dataset.provider : "";
+      applyLandscapeSpotlight();
+    });
+    providerHeatmap.addEventListener("focusout", (event) => {
+      const tile = event.target.closest(".heatmap-tile");
+      if (!tile || tile.contains(event.relatedTarget)) return;
+      if (focusedLandscapeProvider === tile.dataset.provider) focusedLandscapeProvider = "";
+      applyLandscapeSpotlight();
+    });
+    providerHeatmap.addEventListener("click", (event) => {
+      const tile = event.target.closest(".heatmap-tile");
+      if (tile) toggleLandscapePin(tile);
     });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !pinnedLandscapeProvider) return;

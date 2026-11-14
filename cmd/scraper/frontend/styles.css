@@ -582,6 +582,33 @@ html[data-theme="light"] .comparison-table tbody tr:hover,html[data-theme="light
 .landscape-exceptions-disclosure > .landscape-provider { padding-inline: 0; }
 .landscape-legend { margin: 0; padding: 0 8px 5px; color: var(--color-text-muted); font-size: 10px; line-height: 1.5; }
 .landscape-track.has-price-update { animation: landscape-price-update 650ms ease-out; }
+/* Provider heatmap mosaic. Each tile uses the same four-stop score interpolation as the legend. */
+#provider-heatmap[hidden] { display: none !important; }
+.provider-heatmap { --heatmap-slate: color-mix(in srgb,var(--layer-nested) 58%,var(--color-text-muted)); --heatmap-graphite: color-mix(in srgb,var(--layer-nested) 88%,var(--color-copper) 12%); --heatmap-copper: color-mix(in srgb,var(--layer-panel) 38%,var(--color-copper) 62%); --heatmap-gold: color-mix(in srgb,var(--color-gold) 72%,var(--color-copper)); padding: 10px 12px 14px; }
+.heatmap-toolbar { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; }
+.heatmap-toolbar span { margin-inline-end: 4px; }
+.heatmap-toolbar button { min-height: 28px; padding: 3px 10px; border: 0; border-radius: 3px; background: transparent; color: var(--color-text-secondary); cursor: pointer; font-size: 11px; transition: color 160ms ease,background-color 160ms ease; }
+.heatmap-toolbar button:hover { color: var(--color-text); background: var(--layer-nested); }
+.heatmap-toolbar button[aria-pressed="true"] { background: color-mix(in srgb,var(--color-copper) 15%,var(--layer-nested)); color: var(--color-gold); box-shadow: inset 0 -1px var(--color-gold); }
+.heatmap-legend { display: grid; grid-template-columns: auto minmax(120px,1fr) auto; align-items: center; gap: 12px; margin: 0 0 10px; color: var(--color-text-secondary); font-size: 11px; font-weight: 550; }
+.heatmap-legend-scale { display: block; height: 14px; border: 1px solid color-mix(in srgb,var(--color-border) 72%,transparent); border-radius: 2px; background: linear-gradient(to left,var(--heatmap-gold) 0%,var(--heatmap-copper) 28%,var(--heatmap-graphite) 66%,var(--heatmap-slate) 100%); box-shadow: inset 0 1px 2px color-mix(in srgb,var(--color-bg) 24%,transparent); }
+.provider-heatmap-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,168px),1fr)); gap: 2px; overflow: visible; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-border); }
+.heatmap-tile { display: flex; min-width: 0; height: 92px; flex-direction: column; justify-content: space-between; gap: 3px; padding: 9px 11px 8px; border: 0; border-radius: 0; background-color: color-mix(in srgb,var(--heatmap-from) calc(100% - var(--heatmap-blend)),var(--heatmap-to) var(--heatmap-blend)); color: var(--color-text); cursor: pointer; text-align: start; transition: background-color 420ms ease,filter 180ms ease,transform 180ms ease,opacity 180ms ease; }
+.heatmap-tile:hover,.heatmap-tile.is-spotlight { position: relative; z-index: 1; transform: translateY(-1px); filter: brightness(1.07); box-shadow: inset 0 1px 0 color-mix(in srgb,var(--color-text) 12%,transparent),0 3px 8px color-mix(in srgb,var(--color-shadow) 78%,transparent); }
+.heatmap-tile.is-spotlight { outline: 2px solid var(--color-gold); outline-offset: -2px; }
+.heatmap-tile.is-best { color: #261d10; background-image: linear-gradient(145deg,color-mix(in srgb,var(--color-gold) 18%,transparent),transparent 64%); box-shadow: inset 0 0 0 1px color-mix(in srgb,var(--color-gold) 68%,transparent),inset 0 1px 0 color-mix(in srgb,var(--color-text) 24%,transparent); }
+.heatmap-tile.is-rich .heatmap-value,.heatmap-tile.is-rich .heatmap-provider-name,.heatmap-tile.is-rich .heatmap-difference,.heatmap-tile.is-rich .heatmap-rank { color: #261d10; }
+.heatmap-tile.is-best .heatmap-value { font-size: 15px; font-weight: 750; }
+.heatmap-tile.is-best .heatmap-rank::before { content: "✦"; margin-inline-end: 3px; color: color-mix(in srgb,var(--color-copper) 65%,#261d10); font-size: 9px; }
+.heatmap-tile:focus-visible { position: relative; z-index: 2; outline: 2px solid var(--color-violet); outline-offset: -3px; }
+.heatmap-tile:hover .heatmap-value,.heatmap-tile.is-spotlight .heatmap-value { transform: scale(1.025); transform-origin: right center; }
+.provider-heatmap-grid.has-spotlight .heatmap-tile:not(.is-spotlight) { opacity: .72; }
+.heatmap-provider-name { width: 100%; overflow: hidden; color: color-mix(in srgb,var(--color-text) 86%,var(--color-text-secondary)); font-size: 11px; font-weight: 550; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.heatmap-value { color: var(--color-text); font-size: 14px; font-weight: 700; line-height: 1.3; transition: transform 160ms ease; }
+.heatmap-support { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 5px; color: var(--color-text-secondary); font-size: 9px; line-height: 1.3; }
+.heatmap-difference { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heatmap-rank { flex: none; color: var(--color-text); font-size: 9px; font-weight: 600; }
+.heatmap-tile.is-unavailable { background: repeating-linear-gradient(135deg,var(--layer-nested),var(--layer-nested) 8px,color-mix(in srgb,var(--color-border) 55%,var(--layer-nested)) 8px,color-mix(in srgb,var(--color-border) 55%,var(--layer-nested)) 9px); cursor: default; }
 @keyframes landscape-price-update { 0% { background: color-mix(in srgb,var(--color-copper) 15%,transparent); } 100% { background: transparent; } }
 @media(max-width:760px) {
   .price-landscape { padding-inline: 4px; }
@@ -598,8 +625,12 @@ html[data-theme="light"] .comparison-table tbody tr:hover,html[data-theme="light
   .landscape-provider-heading { grid-column: 1 / -1; flex-direction: row; align-items: baseline; justify-content: space-between; }
   .landscape-track { border-inline-start: 0; padding-inline: 4px; }
   .comparison-view-toggle button { padding-inline: 8px; }
+  .provider-heatmap { padding-inline: 8px; }
+  .provider-heatmap-grid { grid-template-columns: repeat(auto-fill,minmax(min(100%,145px),1fr)); }
+  .heatmap-tile { height: 88px; padding: 8px 9px 7px; }
+  .heatmap-value { font-size: 12px; }
 }
 @media(prefers-reduced-motion:reduce) {
-  .comparison-view-toggle button,.landscape-provider,.landscape-track,.landscape-track-fill { transition: none; }
+  .comparison-view-toggle button,.landscape-provider,.landscape-track,.landscape-track-fill,.heatmap-tile,.heatmap-tile::before,.heatmap-toolbar button { transition: none; }
   .landscape-track.has-price-update { animation: none; }
 }

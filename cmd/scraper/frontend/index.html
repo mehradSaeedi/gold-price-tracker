@@ -123,6 +123,7 @@
           <div class="comparison-view-toggle" role="group" aria-label="نمایش مقایسه قیمت">
             <button type="button" data-comparison-view="table" aria-pressed="true">جدول</button>
             <button type="button" data-comparison-view="landscape" aria-pressed="false">نمای قیمت</button>
+            <button type="button" data-comparison-view="heatmap" aria-pressed="false">نقشه حرارتی</button>
           </div>
           <button id="fee-columns-toggle" class="row-action fee-toggle" type="button" aria-controls="comparison-table" aria-expanded="false">نمایش کارمزدها</button>
         </div>
@@ -179,6 +180,18 @@
           </tbody>
         </table>
         <div id="price-landscape" class="price-landscape" role="region" aria-label="نمای مقایسه بصری قیمت ارائه‌دهندگان" hidden></div>
+        <div id="provider-heatmap" class="provider-heatmap" role="region" aria-label="نقشه حرارتی مقایسه ارائه‌دهندگان" hidden>
+          <div class="heatmap-toolbar" role="group" aria-label="معیار نقشه حرارتی">
+            <span>معیار</span>
+            <button type="button" data-heatmap-metric="buy" aria-pressed="true">خرید</button>
+            <button type="button" data-heatmap-metric="sell" aria-pressed="false">فروش</button>
+            <button type="button" data-heatmap-metric="spread" aria-pressed="false">اختلاف</button>
+          </div>
+          <div class="heatmap-legend" aria-label="راهنمای رنگ: طلایی رقابتی‌ترین، مسی رقابتی، گرافیتی میانه، و اسلیت کم‌رقابت‌تر">
+            <span>رقابتی‌ترین</span><span class="heatmap-legend-scale" aria-hidden="true"></span><span>کم‌رقابت‌تر</span>
+          </div>
+          <div id="provider-heatmap-grid" class="provider-heatmap-grid"></div>
+        </div>
         <!-- /\\ On narrow screens, remind the reader that more columns are available sideways. -->
         <p class="table-scroll-hint" aria-hidden="true">برای دیدن ستون‌های بیشتر، جدول را به چپ و راست بکشید.</p>
       </div>
