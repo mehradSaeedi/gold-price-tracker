@@ -1,3 +1,4 @@
+// Small provider-specific trend charts and their shared fetch/render queue.
 export function createProviderTrends({ numberFormat, decimalNumberFormat, displayProviderName, formatToman }) {
     // PROVIDER MINI-CHARTS STATE: remove these declarations to roll the feature back.
     const providerTrendCache = new Map();

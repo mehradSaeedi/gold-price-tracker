@@ -1,3 +1,4 @@
+// TradingView datafeed and chart lifecycle controller for provider price history.
 import { providerDisplayNames } from "./provider-data.js";
 
 export function createChartController({ numberFormat, decimalNumberFormat, displayProviderName }) {

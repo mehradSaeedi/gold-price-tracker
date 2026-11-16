@@ -98,8 +98,15 @@ func acceptsGzip(header string) bool {
 
 // /\ In-memory prices shared by the scrapers and the dashboard page.
 type priceStore struct {
-	mu     sync.RWMutex
-	prices map[string]scraper.Price
+	mu              sync.RWMutex
+	prices          map[string]scraper.Price
+	persistLocks    map[string]*sync.Mutex
+	lastPersistedAt map[string]time.Time
+}
+
+type pricePersistence interface {
+	SaveObservation(context.Context, scraper.Price) error
+	QuoteStagnation(context.Context, string, time.Time, time.Time, time.Duration) (storage.QuoteStagnation, error)
 }
 
 type providerHealth struct {
@@ -126,7 +133,7 @@ func newHealthStore(sites []string) *healthStore {
 }
 
 const (
-	staleAfter     = 90 * time.Second
+	staleAfter = 90 * time.Second
 	// /	We look for at least twelve flat hours while allowing up to two jumps.
 	unchangedAfter = 12 * time.Hour
 )
@@ -137,7 +144,7 @@ func newPriceStore(sites []string) *priceStore {
 	for _, site := range sites {
 		prices[site] = scraper.Price{Site: site}
 	}
-	return &priceStore{prices: prices}
+	return &priceStore{prices: prices, persistLocks: make(map[string]*sync.Mutex), lastPersistedAt: make(map[string]time.Time)}
 }
 
 // /\ Save the newest price for this site.
@@ -154,9 +161,23 @@ func (s *priceStore) set(price scraper.Price) (scraper.Price, error) {
 	price.Available = true
 	price.FetchedAt = time.Now()
 	s.mu.Lock()
+	if previous, ok := s.prices[price.Site]; ok {
+		price.FlatSeconds = previous.FlatSeconds
+		price.JumpCount = previous.JumpCount
+		price.Unchanged = previous.Unchanged
+	}
 	s.prices[price.Site] = price
 	s.mu.Unlock()
 	return price, nil
+}
+
+func (s *priceStore) persistenceLock(site string) *sync.Mutex {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.persistLocks[site] == nil {
+		s.persistLocks[site] = &sync.Mutex{}
+	}
+	return s.persistLocks[site]
 }
 
 func (s *priceStore) setStagnation(site string, stagnation storage.QuoteStagnation) {
@@ -231,10 +252,25 @@ func parseCandleTime(value string) (*time.Time, error) {
 }
 
 // /\ Collect a quote the same way for HTTP scrapers and the WebSocket feed: validate it, show it, then append it.
-func recordPrice(price scraper.Price, store *priceStore, database *storage.Postgres) error {
+func recordPrice(price scraper.Price, store *priceStore, database pricePersistence) error {
+	return recordPriceAt(price, store, database, time.Now)
+}
+
+func recordPriceAt(price scraper.Price, store *priceStore, database pricePersistence, nowFn func() time.Time) error {
 	price, err := store.set(price)
 	if err != nil {
 		return fmt.Errorf("invalid quote: %w", err)
+	}
+
+	providerLock := store.persistenceLock(price.Site)
+	providerLock.Lock()
+	defer providerLock.Unlock()
+	persistedAt := nowFn()
+	store.mu.RLock()
+	lastPersistedAt := store.lastPersistedAt[price.Site]
+	store.mu.RUnlock()
+	if !lastPersistedAt.IsZero() && persistedAt.Sub(lastPersistedAt) < 30*time.Second {
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -244,9 +280,12 @@ func recordPrice(price scraper.Price, store *priceStore, database *storage.Postg
 	if err := database.SaveObservation(ctx, price); err != nil {
 		return fmt.Errorf("save quote to PostgreSQL: %w", err)
 	}
+	store.mu.Lock()
+	store.lastPersistedAt[price.Site] = persistedAt
+	store.mu.Unlock()
 
 	// /\ Recompute the last day's exact-flat time and jumps from the full saved observation history.
-	now := time.Now()
+	now := persistedAt
 	stagnation, err := database.QuoteStagnation(
 		ctx,
 		price.Site,
