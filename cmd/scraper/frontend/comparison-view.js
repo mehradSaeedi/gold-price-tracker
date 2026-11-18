@@ -121,7 +121,7 @@ export function createComparisonView({
   // /\\ Keep the alternate landscape tied to the same fee-adjusted offer values used by the table's best-offer ranking.
   // The landscape owns its spotlight state and shares it with the heatmap through a small controller.
   const priceLandscape = createPriceLandscape({
-    numberFormat, formatToman, displayProviderName, marketEligible, feeKnown, effectiveTotal,
+    numberFormat, formatToman, displayProviderName, formatQuoteAge, marketEligible, feeKnown, effectiveTotal,
   });
 
   function updateSortIndicators() {

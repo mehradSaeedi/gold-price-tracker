@@ -1,6 +1,6 @@
 // Fee-adjusted visual price landscape and its shared spotlight state with the provider heatmap.
 export function createPriceLandscape({
-  numberFormat, formatToman, displayProviderName, marketEligible, feeKnown, effectiveTotal,
+  numberFormat, formatToman, displayProviderName, formatQuoteAge, marketEligible, feeKnown, effectiveTotal,
 }) {
   let pinnedLandscapeProvider = "";
   let hoveredLandscapeProvider = "";

@@ -34,6 +34,35 @@ type gzipResponseWriter struct {
 	writer *gzip.Writer
 }
 
+type apiErrorResponse struct {
+	Error apiError `json:"error"`
+}
+
+type apiError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func writeAPIError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+
+	if err := json.NewEncoder(w).Encode(apiErrorResponse{
+		Error: apiError{Code: code, Message: message},
+	}); err != nil {
+		log.Printf("encode API error: %v", err)
+	}
+
+}
+
+// `priceStatus` is a temporary lookup value built from `priceStore`.
+// Keyed by provider site so health records can be joined with quote status.
+type priceStatus struct {
+	Available bool
+	Stale     bool
+	Unchanged bool
+}
+
 // gzip replaces the response body's writer, so Content-Length from the uncompressed
 // file would be wrong. Let net/http choose chunked encoding for the compressed body.
 func (w *gzipResponseWriter) WriteHeader(status int) {
@@ -109,13 +138,21 @@ type pricePersistence interface {
 	QuoteStagnation(context.Context, string, time.Time, time.Time, time.Duration) (storage.QuoteStagnation, error)
 }
 
+// `providerStatus` is the combined response item returned by GET /api/providers.
+// It includes collector health plus the provider's current quote status.
+type providerStatus struct {
+	providerHealth
+	Available bool `json:"available"`
+	Stale     bool `json:"stale"`
+	Unchanged bool `json:"unchanged"`
+}
+
 type providerHealth struct {
-	// Status              string     `json:"status"`
 	LastAttemptAt       *time.Time `json:"lastAttemptAt"`
 	LastSuccessAt       *time.Time `json:"lastSuccessAt"`
+	LastErrorAt         *time.Time `json:"lastErrorAt"`
 	LastError           string     `json:"lastError,omitempty"`
-	LastErrorAt         *time.Time `json:"lastErrorAt,omitempty"`
-	ConsecutiveFailures int        `json:"consecutiveFailures,omitempty"`
+	ConsecutiveFailures int        `json:"consecutiveFailures"`
 	Site                string     `json:"site"`
 }
 
@@ -130,6 +167,74 @@ func newHealthStore(sites []string) *healthStore {
 		providers[site] = providerHealth{Site: site}
 	}
 	return &healthStore{providers: providers}
+}
+
+func (s *healthStore) recordAttempt(site string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	health, ok := s.providers[site]
+	if !ok {
+		return
+	}
+
+	health.LastAttemptAt = &at
+	s.providers[site] = health
+}
+
+func (s *healthStore) recordSuccess(site string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	health, ok := s.providers[site]
+	if !ok {
+		return
+	}
+
+	health.LastAttemptAt = &at
+	health.LastSuccessAt = &at
+
+	health.LastError = ""
+	health.LastErrorAt = nil
+	health.ConsecutiveFailures = 0
+
+	s.providers[site] = health
+
+}
+
+func (s *healthStore) recordFailure(site, message string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	health, ok := s.providers[site]
+	if !ok {
+		return
+	}
+
+	health.LastAttemptAt = &at
+	health.LastErrorAt = &at
+	health.LastError = message
+	health.ConsecutiveFailures++
+
+	s.providers[site] = health
+}
+
+func (s *healthStore) list() []providerHealth {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	providers := make([]providerHealth, 0, len(s.providers))
+
+	for _, health := range s.providers {
+		providers = append(providers, health)
+	}
+
+	sort.Slice(providers, func(i, j int) bool {
+		return providers[i].Site < providers[j].Site
+	})
+
+	return providers
+
 }
 
 const (
@@ -302,20 +407,29 @@ func recordPriceAt(price scraper.Price, store *priceStore, database pricePersist
 }
 
 // /\ Refresh one site's price in the background and save each accepted result.
-func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, database *storage.Postgres) {
+func pollPrices(name, source string, fetcher priceFetcher, store *priceStore, health *healthStore, database *storage.Postgres) {
 	refresh := func() {
+		health.recordAttempt(name, time.Now())
+
 		price, err := fetcher.GetPrice()
+
 		if err != nil {
+			health.recordFailure(name, "quote fetch failed", time.Now())
 			log.Printf("%s price update failed: %v", name, err)
 			return
 		}
+
 		if price.Source == "" {
 			price.Source = source
 		}
+
 		if err := recordPrice(price, store, database); err != nil {
+			health.recordFailure(name, "quote processing failed", time.Now())
 			log.Printf("%s quote update failed: %v", name, err)
 			return
 		}
+
+		health.recordSuccess(name, time.Now())
 		log.Printf("updated and saved %s prices", price.Site)
 	}
 
@@ -368,6 +482,12 @@ func main() {
 		"Ecogold", "Digikala",
 	})
 
+	health := newHealthStore([]string{
+		"Milli", "WallGold", "Talano", "Goldika", "Talasea", "Taline", "MelliGold", "Hamrahgold",
+		"TapsiGold", "Invi", "Myshemsh", "Gerami", "Snapp Sarmayeh", "Daric", "Zarafza", "Zarpay", "Zarpin",
+		"Ecogold", "Digikala",
+	})
+
 	fetchers := []struct {
 		name    string
 		source  string
@@ -398,22 +518,31 @@ func main() {
 		}{"Snapp Sarmayeh", "Snapp Sarmayeh app API", snappFetcher})
 	}
 	for _, item := range fetchers {
-		go pollPrices(item.name, item.source, item.fetcher, store, database)
+		go pollPrices(item.name, item.source, item.fetcher, store, health, database)
 	}
 
 	// /\\ Keep Invi's public market stream alive and save each accepted gold quote like the other live feeds.
 	invi := scraper.NewInviScraper()
 	go func() {
 		for {
+			health.recordAttempt("Invi", time.Now())
 			prices := make(chan scraper.Price, 10)
 			go func() {
+				sessionSucceeded := false
 				for price := range prices {
 					if err := recordPrice(price, store, database); err != nil {
+						health.recordFailure("Invi", "Invi quote update failed", time.Now())
 						log.Printf("Invi quote update failed: %v", err)
+						continue
+					}
+					if !sessionSucceeded {
+						health.recordSuccess("Invi", time.Now())
+						sessionSucceeded = true
 					}
 				}
 			}()
 			if err := invi.Start(prices); err != nil {
+				health.recordFailure("Invi", "Invi couldn't connect", time.Now())
 				log.Printf("Invi connection ended: %v", err)
 			}
 			close(prices)
@@ -424,18 +553,27 @@ func main() {
 	hamrah := scraper.NewHamrahScraper()
 	go func() {
 		for {
+			health.recordAttempt("Hamrahgold", time.Now())
 			prices := make(chan scraper.Price, 10)
 			go func() {
+				sessionSucceeded := false
 				for price := range prices {
 					if price.Source == "" {
 						price.Source = "HamrahGold WebSocket"
 					}
 					if err := recordPrice(price, store, database); err != nil {
+						health.recordFailure("Hamrahgold", "HamrahGold quote update failed", time.Now())
 						log.Printf("HamrahGold quote update failed: %v", err)
+						continue
+					}
+					if !sessionSucceeded {
+						health.recordSuccess("Hamrahgold", time.Now())
+						sessionSucceeded = true
 					}
 				}
 			}()
 			if err := hamrah.Start(prices); err != nil {
+				health.recordFailure("Hamrahgold", "HamrahGold quote update failed", time.Now())
 				log.Printf("HamrahGold connection ended: %v", err)
 			}
 			close(prices)
@@ -447,15 +585,24 @@ func main() {
 	myshemsh := scraper.NewMyshemshScraper()
 	go func() {
 		for {
+			health.recordAttempt("Myshemsh", time.Now())
 			prices := make(chan scraper.Price, 10)
 			go func() {
+				sessionSucceeded := false
 				for price := range prices {
 					if err := recordPrice(price, store, database); err != nil {
+						health.recordFailure("Myshemsh", "Myshemsh quote update failed", time.Now())
 						log.Printf("Myshemsh quote update failed: %v", err)
+						continue
+					}
+					if !sessionSucceeded {
+						health.recordSuccess("Myshemsh", time.Now())
+						sessionSucceeded = true
 					}
 				}
 			}()
 			if err := myshemsh.Start(prices); err != nil {
+				health.recordFailure("Myshemsh", "Myshemsh quote update failed", time.Now())
 				log.Printf("Myshemsh connection ended: %v", err)
 			}
 			close(prices)
@@ -463,10 +610,47 @@ func main() {
 		}
 	}()
 
+	http.HandleFunc("/api/providers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+		// `healthProviders` contains the attempt and error information
+		healthProviders := health.list()
+		// `prices` contains `Available` and `Stale`
+		prices := store.list()
+		priceBySite := make(map[string]priceStatus, len(prices))
+		for _, price := range prices {
+			priceBySite[price.Site] = priceStatus{
+				Available: price.Available,
+				Stale:     price.Stale,
+				Unchanged: price.Unchanged,
+			}
+		}
+
+		result := make([]providerStatus, 0, len(healthProviders))
+		for _, provider := range healthProviders {
+			price := priceBySite[provider.Site]
+			result = append(result, providerStatus{
+				providerHealth: provider,
+				Available:      price.Available,
+				Stale:          price.Stale,
+				Unchanged:      price.Unchanged,
+			})
+		}
+
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			log.Printf("encode providers: %v", err)
+		}
+	})
+
 	// /\ The page polls this endpoint to fill its price table.
 	http.HandleFunc("/api/prices", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -477,19 +661,19 @@ func main() {
 	// /\ Return OHLC candles derived from raw observations, with newest history bounded by a result limit.
 	http.HandleFunc("/api/candles", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 		query := r.URL.Query()
 		site := query.Get("site")
 		if site == "" {
-			http.Error(w, "site is required", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "site is required")
 			return
 		}
 		interval := query.Get("interval")
 		seconds, ok := candleIntervals[interval]
 		if !ok {
-			http.Error(w, "interval must be one of: 1m, 5m, 15m, 1h, 1d", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "interval must be one of: 1m, 5m, 15m, 1h, 1d")
 			return
 		}
 		// /\ Fixed fees change their per-gram impact with order size, so let the chart send the selected grams.
@@ -497,29 +681,29 @@ func main() {
 		if rawGrams := query.Get("grams"); rawGrams != "" {
 			grams, err = strconv.ParseFloat(rawGrams, 64)
 			if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
-				http.Error(w, "grams must be between 0.001 and 10000", http.StatusBadRequest)
+				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "grams must be between 0.001 and 10000")
 				return
 			}
 		}
 		from, err := parseCandleTime(query.Get("from"))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
 			return
 		}
 		to, err := parseCandleTime(query.Get("to"))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
 			return
 		}
 		if from != nil && to != nil && !from.Before(*to) {
-			http.Error(w, "from must be earlier than to", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "from must be earlier than to")
 			return
 		}
 		limit := 500
 		if rawLimit := query.Get("limit"); rawLimit != "" {
 			limit, err = strconv.Atoi(rawLimit)
 			if err != nil || limit < 1 || limit > 2000 {
-				http.Error(w, "limit must be between 1 and 2000", http.StatusBadRequest)
+				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "limit must be between 1 and 2000")
 				return
 			}
 		}
@@ -529,7 +713,7 @@ func main() {
 		candles, err := database.Candles(ctx, site, interval, seconds, from, to, limit, grams)
 		if err != nil {
 			log.Printf("load %s %s candles: %v", site, interval, err)
-			http.Error(w, "could not load candles", http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "could not load candles")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -540,43 +724,43 @@ func main() {
 	// /\\ Return the winning fee-aware buy and sell provider in each market-history bucket.
 	http.HandleFunc("/api/best-offers", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 		query := r.URL.Query()
 		interval := query.Get("interval")
 		seconds, ok := candleIntervals[interval]
 		if !ok {
-			http.Error(w, "interval must be one of: 1m, 5m, 15m, 1h, 1d", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "interval must be one of: 1m, 5m, 15m, 1h, 1d")
 			return
 		}
 		grams := 1.0
 		if rawGrams := query.Get("grams"); rawGrams != "" {
 			grams, err = strconv.ParseFloat(rawGrams, 64)
 			if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
-				http.Error(w, "grams must be between 0.001 and 10000", http.StatusBadRequest)
+				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "grams must be between 0.001 and 10000")
 				return
 			}
 		}
 		from, err := parseCandleTime(query.Get("from"))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
 			return
 		}
 		to, err := parseCandleTime(query.Get("to"))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
 			return
 		}
 		if from != nil && to != nil && !from.Before(*to) {
-			http.Error(w, "from must be earlier than to", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "from must be earlier than to")
 			return
 		}
 		limit := 500
 		if rawLimit := query.Get("limit"); rawLimit != "" {
 			limit, err = strconv.Atoi(rawLimit)
 			if err != nil || limit < 1 || limit > 2000 {
-				http.Error(w, "limit must be between 1 and 2000", http.StatusBadRequest)
+				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "limit must be between 1 and 2000")
 				return
 			}
 		}
@@ -592,7 +776,7 @@ func main() {
 		points, err := database.BestOffers(ctx, interval, seconds, from, to, limit, grams, sites)
 		if err != nil {
 			log.Printf("load %s best offers: %v", interval, err)
-			http.Error(w, "could not load best offers", http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "could not load best offers")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
