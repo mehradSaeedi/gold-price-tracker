@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -37,6 +38,65 @@ type priceStatus struct {
 	Available bool
 	Stale     bool
 	Unchanged bool
+}
+
+type historyOptions struct {
+	interval string
+	seconds  int64
+	grams    float64
+	from     *time.Time
+	to       *time.Time
+	limit    int
+}
+
+func parseHistoryOptions(query url.Values) (historyOptions, error) {
+	options := historyOptions{
+		interval: query.Get("interval"),
+		grams:    1,
+		limit:    500,
+	}
+
+	seconds, ok := candleIntervals[options.interval]
+	if !ok {
+		return historyOptions{}, fmt.Errorf(
+			"interval must be one of: 1m, 5m, 15m, 1h, 1d",
+		)
+	}
+
+	options.seconds = seconds
+	if rawGrams := query.Get("grams"); rawGrams != "" {
+		grams, err := strconv.ParseFloat(rawGrams, 64)
+		if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
+			return historyOptions{}, fmt.Errorf("grams must be between 0.001 and 10000")
+		}
+		options.grams = grams
+	}
+
+	var err error
+	options.from, err = parseCandleTime(query.Get("from"))
+	if err != nil {
+		return historyOptions{}, err
+	}
+
+	options.to, err = parseCandleTime(query.Get("to"))
+	if err != nil {
+		return historyOptions{}, err
+	}
+
+	if options.from != nil && options.to != nil &&
+		!options.from.Before(*options.to) {
+		return historyOptions{}, fmt.Errorf("from must be earlier than to")
+	}
+
+	if rawLimit := query.Get("limit"); rawLimit != "" {
+		limit, err := strconv.Atoi(rawLimit)
+		if err != nil || limit < 1 || limit > 2000 {
+			return historyOptions{}, fmt.Errorf("limit must be between 1 and 2000")
+		}
+		options.limit = limit
+	}
+
+	return options, nil
 }
 
 func writeAPIError(w http.ResponseWriter, status int, code, message string) {
@@ -98,49 +158,28 @@ func registerAPIHandlers(mux *http.ServeMux, store *priceStore, health *healthSt
 			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "site is required")
 			return
 		}
-		interval := query.Get("interval")
-		seconds, ok := candleIntervals[interval]
-		if !ok {
-			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "interval must be one of: 1m, 5m, 15m, 1h, 1d")
-			return
-		}
-		// /\ Fixed fees change their per-gram impact with order size, so let the chart send the selected grams.
-		grams := 1.0
-		if rawGrams := query.Get("grams"); rawGrams != "" {
-			grams, err := strconv.ParseFloat(rawGrams, 64)
-			if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
-				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "grams must be between 0.001 and 10000")
-				return
-			}
-		}
-		from, err := parseCandleTime(query.Get("from"))
+
+		options, err := parseHistoryOptions(query)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
 			return
-		}
-		to, err := parseCandleTime(query.Get("to"))
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
-			return
-		}
-		if from != nil && to != nil && !from.Before(*to) {
-			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "from must be earlier than to")
-			return
-		}
-		limit := 500
-		if rawLimit := query.Get("limit"); rawLimit != "" {
-			limit, err = strconv.Atoi(rawLimit)
-			if err != nil || limit < 1 || limit > 2000 {
-				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "limit must be between 1 and 2000")
-				return
-			}
 		}
 
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		candles, err := database.Candles(ctx, site, interval, seconds, from, to, limit, grams)
+		candles, err := database.Candles(
+			ctx,
+			site,
+			options.interval,
+			options.seconds,
+			options.from,
+			options.to,
+			options.limit,
+			options.grams,
+		)
+
 		if err != nil {
-			log.Printf("load %s %s candles: %v", site, interval, err)
+			log.Printf("load %s %s candles: %v", site, options.interval, err)
 			writeAPIError(w, http.StatusInternalServerError, "internal_error", "could not load candles")
 			return
 		}
@@ -156,43 +195,15 @@ func registerAPIHandlers(mux *http.ServeMux, store *priceStore, health *healthSt
 			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
+
 		query := r.URL.Query()
-		interval := query.Get("interval")
-		seconds, ok := candleIntervals[interval]
-		if !ok {
-			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "interval must be one of: 1m, 5m, 15m, 1h, 1d")
-			return
-		}
-		grams := 1.0
-		if rawGrams := query.Get("grams"); rawGrams != "" {
-			grams, err := strconv.ParseFloat(rawGrams, 64)
-			if err != nil || math.IsNaN(grams) || math.IsInf(grams, 0) || grams < 0.001 || grams > 10000 {
-				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "grams must be between 0.001 and 10000")
-				return
-			}
-		}
-		from, err := parseCandleTime(query.Get("from"))
+
+		options, err := parseHistoryOptions(query)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
 			return
 		}
-		to, err := parseCandleTime(query.Get("to"))
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
-			return
-		}
-		if from != nil && to != nil && !from.Before(*to) {
-			writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "from must be earlier than to")
-			return
-		}
-		limit := 500
-		if rawLimit := query.Get("limit"); rawLimit != "" {
-			limit, err = strconv.Atoi(rawLimit)
-			if err != nil || limit < 1 || limit > 2000 {
-				writeAPIError(w, http.StatusBadRequest, "invalid_parameter", "limit must be between 1 and 2000")
-				return
-			}
-		}
+
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		configuredSites := store.list()
@@ -202,9 +213,16 @@ func registerAPIHandlers(mux *http.ServeMux, store *priceStore, health *healthSt
 				sites = append(sites, price.Site)
 			}
 		}
-		points, err := database.BestOffers(ctx, interval, seconds, from, to, limit, grams, sites)
+		points, err := database.BestOffers(ctx,
+			options.interval,
+			options.seconds,
+			options.from,
+			options.to,
+			options.limit,
+			options.grams,
+			sites)
 		if err != nil {
-			log.Printf("load %s best offers: %v", interval, err)
+			log.Printf("load %s best offers: %v", options.interval, err)
 			writeAPIError(w, http.StatusInternalServerError, "internal_error", "could not load best offers")
 			return
 		}
